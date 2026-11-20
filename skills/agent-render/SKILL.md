@@ -40,12 +40,12 @@ Skill 被单独复制到其他目录时必须设置 `AGENT_RENDER_ROOT`；不要
 ## 决策
 
 1. 工具列表有 `render_view` 时优先使用 MCP；没有时使用 `{仓库根}\scripts\render.ps1` 等脚本，不要假装调用 MCP。
-2. 业务根有 `agent-render.json`（兼容旧 `wpf-render.json`）时先 `list_views`，再用 `render_view(config, preset)`；修改业务代码时加 `build: true`。脚本模式使用 `render.ps1 -Config <业务根> -Preset <名称>`。
+2. 业务根有 `agent-render.json`（兼容旧 `wpf-render.json`）时先 `list_views`，再用 `render_view(config, preset)`；修改业务代码时加 `build: true`。脚本模式使用 `render.ps1 -Config <业务根> -Preset <名称>`，改了业务代码要加 `-Build`（否则渲染的是上次构建的旧程序集，拿到的 ok 是假的）。
 3. 没有预设时先构建业务项目，再传 `assemblyPaths`（优先应用 exe 输出目录）和 `viewType` 或 `xaml`。不传视图参数得到的是内置样例，不可作为业务验收。
 4. 默认使用 `layout-only`。只有依赖 `Loaded`、`PresentationSource`、窗口祖先、实际承载尺寸，或工厂返回 `Window` 时才用 `windowHost`；无交互桌面会话中不要选它。
 5. DataContext 无参预览 VM 用 `dataContextType`；需要构造参数或 stub 用 `dataContextFactory`；需要资源、异步就绪、选中态或清理用 `factoryFile`。字段见 `{仓库根}\references\integration.md`。Avalonia 可传 `stack: "avalonia"` 或让工具从程序集引用自动识别；Avalonia 使用 `avares://` / 文件资源，不使用 WPF `pack://`。
 
-Avalonia 本期只支持初始截图、主题 / 尺寸 / DPI、绑定日志和布局报告；传 `steps` 会明确失败，不会静默跳过。
+Avalonia 只支持初始截图、主题 / 尺寸 / DPI、绑定与布局检查、元素截图和快照对比；不支持 `windowHost` 与交互步骤，传 `steps` 会明确失败而不会静默跳过。
 
 WinForms 同样只支持初始截图、尺寸 / DPI、绑定与布局检查、元素截图和快照对比：只支持 `light` 主题，传 `theme: dark`、`steps`、`xaml`、`resourceDictionaries` 或 `windowHost` 都会明确失败；视图用 `viewType` 指定 `UserControl` / `Form`，预览数据注入到视图里 `DataSource` 为空或指向该类型的 `BindingSource`。限制：`DrawToBitmap` 画不出 `RichTextBox`、`WebBrowser`、ActiveX 等原生内容；绑定成员写错时会被**摘掉并记为绑定问题**（退出码 2，不会弄崩这次渲染），只有 `Load` 里才添加的坏绑定无法先摘掉，会让整次渲染失败；数据源还没赋值（`BindingSource.DataSource` 为空）的绑定会被跳过并保持未解析，不报成绑定问题；请求的 DPI 只把位图按比例放大，布局仍按 96 DPI。
 
@@ -56,7 +56,7 @@ WinForms 同样只支持初始截图、尺寸 / DPI、绑定与布局检查、�
 1. 渲染一次：MCP 按上面的路由调用；脚本用 `render.ps1`。多主题 / 尺寸 / DPI 的预设用 `render_view` 或脚本预设，多组合直传参数才用 `render_matrix`。
 2. **先读 JSON，再检查 PNG。** 不把摘要、退出码或 manifest 当成视觉验收的替代品。
 
-`status`：`ok` / `binding-issues` / `failed:<阶段>`（`build` / `locate` / `start` / `render` / `timeout` / `step`）。退出码 `0` 表示通过，`2` 表示绑定问题，`1` 或 `3` 表示失败。`bindingTraceVerified` 为 false 时绑定统计不可信。`layoutIssues`（`text-truncated` / `clipped` / `overlap` / `zero-size` / `out-of-viewport`）是线索，不影响状态；对照截图确认，坐标用 `get_layout`。失败看 `buildErrors` / `error` 和 `outDir` 下日志。排障见 `{仓库根}\references\verification.md`。
+`status`：`ok` / `binding-issues` / `failed:<阶段>`（`build` / `locate` / `start` / `render` / `timeout` / `step`）。退出码 `0` 表示通过，`2` 表示绑定问题，`1` 或 `3` 表示失败。`bindingTraceVerified` 为 false 时绑定统计不可信。`layoutIssues`（`text-truncated` / `clipped` / `overlap` / `zero-size` / `out-of-viewport`）是线索，不影响状态；对照截图确认，坐标用 `get_layout`。`get_layout` 按 `kind` 筛选时，`issueCount` 是筛选后的条数，别把 0 当成「没问题」——看 `totalIssueCount`；`nodesTruncated` 为 true 时查不到元素不代表它不存在。失败看 `buildErrors` / `error` 和 `outDir` 下日志。排障见 `{仓库根}\references\verification.md`。
 
 报告真实页面还是样例、模式、主题、尺寸、DPI、状态、绑定监听可信度、绑定与已确认的布局问题，以及未覆盖的 Popup / HWND / native host / 默认主题悬停触发器 / 未等待的异步。
 

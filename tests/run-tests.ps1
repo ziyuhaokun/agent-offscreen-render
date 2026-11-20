@@ -130,7 +130,8 @@ $cases = @(
     @{ Name = 'sample-transparent'; Render = @{ Background = 'transparent' }; Expect = @{ exitCode = 0; background = 'transparent' } }
     @{ Name = 'sample-net10'; Generate = @{ TargetFramework = 'net10.0-windows' }
         Expect = @{ exitCode = 0; harnessTfm = 'net10.0-windows'; targetFramework = '.NETCoreApp,Version=v10.0' } }
-    @{ Name = 'xaml-binding-error'; Generate = @{ Xaml = Join-Path $fixtures 'binding-error.xaml' }
+    # 绑定失败时文本为空，截图本来就只有背景色：显式关掉「非空白」检查，免得把预期当 bug。
+    @{ Name = 'xaml-binding-error'; NoPixelCheck = $true; Generate = @{ Xaml = Join-Path $fixtures 'binding-error.xaml' }
         Expect = @{ exitCode = 2; status = 'binding-issues'; bindingIssuePattern = 'MissingProperty' } }
     @{ Name = 'net8-view'; Sample = 'net8'; Generate = @{ ViewType = 'SampleViews.OrderView'; DataContextType = 'SampleViews.OrderPreviewVm' }
         Expect = @{ exitCode = 0; status = 'ok'; sourceViewType = 'SampleViews.OrderView'; harnessTfm = 'net8.0-windows'; harnessPlatform = 'AnyCPU'; layoutIssueCount = 0 } }
@@ -155,6 +156,8 @@ $cases = @(
     @{ Name = 'preset-merge'; Kind = 'PresetMerge' }
     @{ Name = 'logic-tests'; Kind = 'LogicTests' }
     @{ Name = 'result-reader'; Kind = 'ResultReader' }
+    @{ Name = 'cache-key'; Kind = 'CacheKey' }
+    @{ Name = 'resource-dictionary'; Kind = 'ResourceDictionary' }
     @{ Name = 'watch-matcher'; Kind = 'WatchMatcher' }
     @{ Name = 'antigravity-install'; Kind = 'AntigravityInstall' }
     @{ Name = 'host-frameworks'; Kind = 'HostFrameworks' }
@@ -191,6 +194,64 @@ $cases = @(
 function Get-PngWidth([string]$Path) {
     $bytes = [IO.File]::ReadAllBytes($Path)
     ([int]$bytes[16] -shl 24) -bor ([int]$bytes[17] -shl 16) -bor ([int]$bytes[18] -shl 8) -bor [int]$bytes[19]
+}
+
+function Get-PngHeight([string]$Path) {
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    ([int]$bytes[20] -shl 24) -bor ([int]$bytes[21] -shl 16) -bor ([int]$bytes[22] -shl 8) -bor [int]$bytes[23]
+}
+
+# 采样统计：角像素颜色（背景）、与角像素不同的采样点数、alpha=0 的采样点数。
+# 用 LockBits 一次拷完再采样：逐点 GetPixel 在 60 多个用例上会慢到数分钟。
+function Get-PngSampleStats([string]$Path) {
+    if (-not ('System.Drawing.Bitmap' -as [type])) { Add-Type -AssemblyName System.Drawing }
+    $bitmap = [Drawing.Bitmap]::new($Path)
+    try {
+        $rect = [Drawing.Rectangle]::new(0, 0, $bitmap.Width, $bitmap.Height)
+        $data = $bitmap.LockBits($rect, [Drawing.Imaging.ImageLockMode]::ReadOnly, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        try {
+            $stride = [Math]::Abs($data.Stride)
+            $bytes = [byte[]]::new($stride * $bitmap.Height)
+            [Runtime.InteropServices.Marshal]::Copy($data.Scan0, $bytes, 0, $bytes.Length)
+            # 采样步长按短边 / 256：12px 高的小字在 12px 步长下会被整行跳过（实测漏掉「Loaded by Form.Load」）。
+            $step = [Math]::Max(2, [Math]::Floor([Math]::Min($bitmap.Width, $bitmap.Height) / 256))
+            $corner = @([int]$bytes[0], [int]$bytes[1], [int]$bytes[2], [int]$bytes[3])
+            $total = 0; $different = 0; $transparent = 0
+            :rows for ($y = 0; $y -lt $bitmap.Height; $y += $step) {
+                for ($x = 0; $x -lt $bitmap.Width; $x += $step) {
+                    $i = $y * $stride + $x * 4
+                    $total++
+                    if ($bytes[$i + 3] -eq 0) { $transparent++ }
+                    if ($bytes[$i] -ne $corner[0] -or $bytes[$i + 1] -ne $corner[1] -or $bytes[$i + 2] -ne $corner[2] -or $bytes[$i + 3] -ne $corner[3]) {
+                        $different++
+                        # 找到足够证据就停：只有空白图才会扫完整个网格。
+                        if ($different -ge 3) { break rows }
+                    }
+                }
+            }
+            [pscustomobject]@{ Width = $bitmap.Width; Height = $bitmap.Height; Corner = $corner; Total = $total; Different = $different; Transparent = $transparent }
+        }
+        finally { $bitmap.UnlockBits($data) }
+    }
+    finally { $bitmap.Dispose() }
+}
+
+# 截图本体校验。以前 pixelSize 只来自 manifest 的算术值（ceil(dip*dpi/96)），宿主出黑图 / 白图 / 空壳也全绿。
+function Test-SnapshotPixels($manifest, $summary) {
+    $failures = [Collections.Generic.List[string]]::new()
+    if (-not $summary.snapshot -or -not (Test-Path -LiteralPath $summary.snapshot)) { return $failures }
+    $stats = Get-PngSampleStats $summary.snapshot
+    if ("$($stats.Width)x$($stats.Height)" -ne "$($manifest.pixelWidth)x$($manifest.pixelHeight)") {
+        $failures.Add("PNG 实际尺寸 $($stats.Width)x$($stats.Height) 与 manifest 的 $($manifest.pixelWidth)x$($manifest.pixelHeight) 不一致")
+    }
+    # 整张只有背景色 = 一个与角像素不同的采样点都没有。用绝对点数而不是占比：稀疏界面（小块内容 + 大片留白）占比也很低。
+    $ratio = if ($stats.Total) { $stats.Different / $stats.Total } else { 0 }
+    if ($stats.Different -lt 3) { $failures.Add("截图像是整张背景色（非背景采样点 $($stats.Different)/$($stats.Total)）：宿主可能没画内容") }
+    # 背景标为全透明时，PNG 必须真的保留透明通道。
+    if ("$($manifest.background)" -match '^#00[0-9A-Fa-f]{6}$' -and $stats.Transparent -eq 0) {
+        $failures.Add("background 标为 $($manifest.background)（全透明），但 PNG 中没有 alpha=0 的像素")
+    }
+    $failures
 }
 
 # 过期缓存清理：正被其他进程使用（持有互斥量）的目录不能删除，空闲的过期目录应被删除。
@@ -240,8 +301,12 @@ function Test-LockTimeout($case) {
     $cacheRoot = Join-Path $ArtifactsDir "$($case.Name)-cache"
     # 与 render.ps1 对内置 WPF 样例（无程序集、未指定 TFM / 位数 / 工厂）算出同一个缓存键。
     . (Join-Path $root 'scripts\Cache.ps1')
-    $assetDirs = @((Join-Path $root 'assets\wpf'), (Join-Path $root 'assets\shared'))
-    $key = Get-WpfRenderCacheKey $generator $assetDirs '' '' '' @()
+    . (Join-Path $root 'scripts\HostFrameworks.ps1')
+    $assetDirs = @((Join-Path $root 'assets\wpf'), (Join-Path $root 'assets\shared')) | ForEach-Object { [IO.Path]::GetFullPath($_) }
+    $hostInfo = Get-HostFrameworks @() '' ''
+    $toolScripts = @(Get-ChildItem -LiteralPath (Join-Path $root 'scripts') -Filter '*.ps1' -File | ForEach-Object FullName) +
+        @([IO.Path]::GetFullPath((Join-Path $root 'VERSION')))
+    $key = Get-WpfRenderCacheKey $generator $assetDirs $hostInfo.TargetFramework $hostInfo.Platform '' '' @() $toolScripts
     $signal = Join-Path $ArtifactsDir "$($case.Name)-held"
     $holdScript = "`$m = [Threading.Mutex]::new(`$false, 'Local\agent-render-$key'); `$null = `$m.WaitOne(); Set-Content -LiteralPath '$signal' -Value 1; Start-Sleep -Seconds 120"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($holdScript))
@@ -589,6 +654,84 @@ function Test-ResultReader($case) {
     $failures
 }
 
+# Cache.ps1（缓存键的单一 module）：键必须覆盖模板 / 编排脚本 / Avalonia 基线，且对大小写与空格归一。
+# 以前资产目录按调用方当前位置解析，CWD 不在 scripts\ 时一个模板文件也哈希不到，模板改了缓存不失效。
+function Test-CacheKey($case) {
+    $failures = [Collections.Generic.List[string]]::new()
+    . (Join-Path $root 'scripts\Cache.ps1')
+    $generator = Join-Path $root 'scripts\new-agent-harness.ps1'
+    $assets = Join-Path $root 'assets\wpf'
+    $version = Join-Path $root 'VERSION'
+    $key = {
+        param($Tfm, $Platform, $AvaloniaVersion, $Assets, $Scripts)
+        Get-WpfRenderCacheKey $generator @($Assets) $Tfm $Platform $AvaloniaVersion '' @() @($Scripts)
+    }
+
+    $baseline = & $key 'net8.0-windows' 'AnyCPU' '' $assets $version
+    if ($baseline -notmatch '^[0-9a-f]{16}$') { $failures.Add("缓存键格式不是 16 位十六进制：$baseline") }
+    # 大小写 / 空格不同不应建第二份宿主。
+    foreach ($variant in @(@('NET8.0-WINDOWS', 'AnyCPU'), @('net8.0-windows ', 'anycpu'))) {
+        $actual = & $key $variant[0] $variant[1] '' $assets $version
+        if ($actual -ne $baseline) { $failures.Add("-TargetFramework / -Platform 的写法（'$($variant[0])' / '$($variant[1])'）不应换缓存键") }
+    }
+    # Avalonia 包版本变了（业务程序集升级了引用）必须换宿主，否则会用旧包渲染出错的像素。
+    if ((& $key 'net8.0' 'AnyCPU' '11.3.22' $assets $version) -eq (& $key 'net8.0' 'AnyCPU' '12.1.4' $assets $version)) {
+        $failures.Add('Avalonia 11 与 12 应得到不同的缓存键')
+    }
+    # 编排脚本（Stack / HostFrameworks / Steps …）也要进键：改了推断规则就不该复用旧宿主。
+    if ((& $key 'net8.0-windows' 'AnyCPU' '' $assets $version) -eq
+        (& $key 'net8.0-windows' 'AnyCPU' '' $assets @($version, (Join-Path $root 'README.md')))) {
+        $failures.Add('编排脚本变化应改变缓存键')
+    }
+    # 模板 .cs 也必须进键，且按绝对路径哈希：把资产目录指向另一份目录（内容不同）时键必须不同。
+    $tempAsset = Join-Path $ArtifactsDir 'assets-probe'
+    $null = New-Item -ItemType Directory -Path $tempAsset -Force
+    Set-Content -LiteralPath (Join-Path $tempAsset 'Probe.cs') -Value '// probe' -Encoding utf8
+    if ((& $key 'net8.0-windows' 'AnyCPU' '' $tempAsset $version) -eq $baseline) { $failures.Add('模板目录内容应影响缓存键') }
+    # render.ps1 必须把资产目录转成绝对路径，否则相对路径会按调用方 CWD 解析、哈希到 0 个文件。
+    if (-not (Select-String -LiteralPath (Join-Path $root 'scripts\render.ps1') -Pattern 'GetFullPath' -Quiet)) {
+        $failures.Add('render.ps1 不再把资产目录转成绝对路径：模板哈希会因调用方 CWD 而落空')
+    }
+    $failures
+}
+
+# 资源字典与 {theme} 占位符（以前全仓零用例）：同一份字典路径按主题取不同文件，背景颜色必须真的跟着变。
+function Test-ResourceDictionary($case) {
+    $failures = [Collections.Generic.List[string]]::new()
+    if (-not ('System.Drawing.Bitmap' -as [type])) { Add-Type -AssemblyName System.Drawing }
+    $dictionary = Join-Path $fixtures 'theme-{theme}.xaml'
+    $view = Join-Path $fixtures 'dictionary-view.xaml'
+    # 表：主题 → 字典里的背景色（theme-light 为红，theme-dark 为蓝）。
+    $table = @(
+        @{ Theme = 'light'; Channel = 'R' }
+        @{ Theme = 'dark'; Channel = 'B' }
+    )
+    foreach ($row in $table) {
+        $outDir = & $oneStep -Xaml $view -ResourceDictionary $dictionary -Theme $row.Theme -Width 200 -Height 100 -NoCache 6> $null
+        $exitCode = $LASTEXITCODE
+        $summaryPath = Join-Path "$outDir" 'summary.json'
+        if (-not (Test-Path -LiteralPath $summaryPath)) { $failures.Add("$($row.Theme)：缺少 summary.json（outDir=$outDir）"); continue }
+        $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
+        if ($exitCode -ne 0 -or $summary.status -ne 'ok') { $failures.Add("$($row.Theme)：期望 ok / 0，实际 $($summary.status) / $exitCode（$($summary.error -join '; ')）"); continue }
+        $bitmap = [Drawing.Bitmap]::new($summary.snapshot)
+        try {
+            $pixel = $bitmap.GetPixel([int]($bitmap.Width / 2), [int]($bitmap.Height / 2))
+            $actual = $pixel.$($row.Channel)
+            $other = if ($row.Channel -eq 'R') { $pixel.B } else { $pixel.R }
+            # 背景色应是该主题字典里的强调色：通道值高、另一通道值低（远高于容差）。
+            if ($actual -lt 150 -or $other -gt 100) { $failures.Add("$($row.Theme)：截图中心颜色 $($pixel.Name) 与 theme-$($row.Theme).xaml 的强调色不符，{theme} 可能没生效") }
+        }
+        finally { $bitmap.Dispose() }
+    }
+    # Avalonia 不支持 WPF 的 pack:// 字典，必须在脚本层就拒绝（不是静默忽略）。
+    try {
+        $null = & $oneStep -Stack avalonia -ResourceDictionary 'pack://application:,,,/App;component/Themes/Dark.xaml' -NoCache 6> $null
+        $failures.Add('Avalonia 应拒绝 pack:// 资源字典')
+    }
+    catch { if ($_.Exception.Message -notmatch 'pack') { $failures.Add("Avalonia pack:// 拒绝的报错不明确：$($_.Exception.Message)") } }
+    $failures
+}
+
 # Watches.ps1（watch 匹配的单一 module）：glob 语义、defaults 继承、命中文件返回，表驱动直测。
 function Test-WatchMatcher($case) {
     $failures = [Collections.Generic.List[string]]::new()
@@ -735,9 +878,17 @@ function Test-HostFrameworks($case) {
 # 宿主纯逻辑单元测试（BindingIssues / Json）：改解析与序列化逻辑时先跑这里，快于端到端。
 function Test-LogicTests($case) {
     $failures = [Collections.Generic.List[string]]::new()
-    & dotnet test (Join-Path $root 'tests\AgentRenderLogic.Tests\AgentRenderLogic.Tests.csproj') -c Release --nologo 2>&1 |
-        ForEach-Object { "$_" } | Where-Object { $_ -match '^\s+Failed |error ' } | ForEach-Object { $failures.Add($_) }
-    if ($LASTEXITCODE -ne 0 -and $failures.Count -eq 0) { $failures.Add("单元测试退出码 $LASTEXITCODE") }
+    # 只看退出码不够：过滤条件写错 / discovery 失效时没跑任何测试也可能返回 0。
+    $output = & dotnet test (Join-Path $root 'tests\AgentRenderLogic.Tests\AgentRenderLogic.Tests.csproj') -c Release --nologo 2>&1 | ForEach-Object { "$_" }
+    $output | Where-Object { $_ -match '^\s+Failed |error ' } | ForEach-Object { $failures.Add($_) }
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0 -and $failures.Count -eq 0) { $failures.Add("单元测试退出码 $exitCode") }
+    # 只在退出码为 0 时校验执行数量：退出码非 0 时已经有失败结论，不必再叠一条。
+    $passed = 0
+    foreach ($line in $output) {
+        if ($line -match 'Passed:\s*(\d+)') { $passed = [int]$Matches[1] }
+    }
+    if ($exitCode -eq 0 -and $passed -lt 10) { $failures.Add("单元测试实际只执行了 $passed 个用例（期望 ≥10）：dotnet test 可能没真正跑测试") }
     $failures
 }
 
@@ -875,6 +1026,20 @@ function Test-AvaloniaLayout($case) {
     foreach ($item in $layoutProblemKinds) {
         if (-not ($found | Where-Object { $_.StartsWith($item, [StringComparison]::Ordinal) })) { $failures.Add("缺少布局问题 $item") }
     }
+
+    # -Element 成功路径（以前只测了「找不到」）：矩形是截图坐标，位图宽度按 DPI 放大。
+    $elementOut = & $oneStep -Stack avalonia -NoCache -Xaml (Join-Path $fixtures 'avalonia-layout-problems.axaml') -Element OkButton -Dpi 144 -Width 400 -Height 200 6> $null
+    $elementSummary = Get-Content -LiteralPath (Join-Path "$elementOut" 'summary.json') -Raw | ConvertFrom-Json
+    $elementManifest = Get-Content -LiteralPath (Join-Path "$elementOut" 'manifest.json') -Raw | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0) { $failures.Add("Avalonia -Element 成功渲染的退出码期望 0，实际 $LASTEXITCODE（$($elementSummary.error -join '; ')）") }
+    if ((@($elementManifest.elementRectDip) -join ',') -ne '10,110,100,36') {
+        $failures.Add("Avalonia 元素矩形期望 10,110,100,36，实际 $(@($elementManifest.elementRectDip) -join ',')")
+    }
+    if ($elementSummary.elementSnapshot) {
+        $elementWidth = Get-PngWidth $elementSummary.elementSnapshot
+        if ($elementWidth -ne 150) { $failures.Add("Avalonia element.png 宽度期望 150（100 DIP × 144 DPI），实际 $elementWidth") }
+    }
+    else { $failures.Add('Avalonia -Element 没有产出 element.png') }
     $failures
 }
 
@@ -954,10 +1119,19 @@ function Test-StackRules($case) {
         if ($detected -ne 'winforms') { $failures.Add("WinForms 样例程序集应判为 winforms，实际 $detected") }
     }
     # 11 / 12 双档：两代程序集各自选中对应基线；混引必须报错。
+    # 11 档以前直接 ``continue`` 静默跳过（干净机器上永远不跑），现在缺包先还原，仍缺则算失败。
     $avalonia11 = Join-Path $HOME '.nuget\packages\avalonia\11.3.22\lib\net8.0\Avalonia.Controls.dll'
     $avalonia12 = Join-Path $HOME '.nuget\packages\avalonia\12.1.4\lib\net8.0\Avalonia.Controls.dll'
+    if (-not (Test-Path -LiteralPath $avalonia11)) {
+        $refsProject = Join-Path $fixtures 'Avalonia11Refs\Avalonia11Refs.csproj'
+        $restoreLog = Join-Path $ArtifactsDir 'avalonia11-restore.log'
+        & dotnet restore $refsProject --nologo *> $restoreLog
+        if (-not (Test-Path -LiteralPath $avalonia11)) {
+            $failures.Add("无法准备 Avalonia 11.3.22 程序集（需联网还原，日志 $restoreLog）：11 档用例不可跳过")
+        }
+    }
     foreach ($row in @(@($avalonia11, '11.3.22'), @($avalonia12, '12.1.4'))) {
-        if (-not (Test-Path -LiteralPath $row[0])) { continue }
+        if (-not (Test-Path -LiteralPath $row[0])) { $failures.Add("缺少 Avalonia $($row[1]) 程序集：$($row[0])"); continue }
         $detected = Get-AgentRenderStack @($row[0]) $null
         if ($detected -ne 'avalonia') { $failures.Add("Avalonia $($row[1]) 程序集应判为 avalonia，实际 $detected") }
         $info = Get-AvaloniaHostInfo @($row[0]) $null $null
@@ -1078,6 +1252,8 @@ function Test-Case($case) {
     if ($exitCode -in 0, 2) {
         if (-not $summary.snapshot -or -not (Test-Path -LiteralPath $summary.snapshot)) { $failures.Add('缺少 snapshot.png') }
         if ($summary.bindingTraceVerified -ne $true) { $failures.Add('绑定监听自检未命中') }
+        # 图片本体也要验：尺寸、非空白、透明度。个别用例（如故意全空白的视图）可用 NoPixelCheck 关掉。
+        if (-not $case.NoPixelCheck) { foreach ($line in @(Test-SnapshotPixels $manifest $summary)) { $failures.Add($line) } }
     }
     if ($failures.Count -gt 0) {
         $failures.Add("outDir=$outDir")

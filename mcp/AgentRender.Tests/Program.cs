@@ -84,6 +84,11 @@ else
         var outDir = summary?["outDir"]?.GetValue<string>() ?? "";
         var layout = Json(await Call("get_layout", new() { ["outDir"] = outDir, ["element"] = "ClippedButton", ["kind"] = "overlap" }));
         Check("get_layout 按元素与类型筛选", layout?["issueCount"]?.GetValue<int>() == 1 && (layout?["matchedNodes"] as JsonArray)?.Count > 0, layout?.ToJsonString() ?? "");
+        // issueCount 是筛选后的条数：必须同时给出真实总数，否则代理筛一类看到 0 就当成「没问题」。
+        Check("get_layout 同时给出筛选后与总条数", layout?["issueCount"]?.GetValue<int>() == 1
+            && layout?["totalIssueCount"]?.GetValue<int>() == 5 && layout?["nodesTruncated"]?.GetValue<bool>() == false, layout?.ToJsonString() ?? "");
+        var badKind = await Call("get_layout", new() { ["outDir"] = outDir, ["kind"] = "cliped" });
+        Check("get_layout 对拼错的 kind 报错而不是返回空列表", badKind.IsError == true && Texts(badKind).Contains("zero-size"), Texts(badKind));
 
         // 交互步骤：steps 参数按 JSON 数组传入，返回每步摘要与步骤总览图。
         var stepsResult = await Call("render_view", new()
@@ -107,6 +112,13 @@ else
     var matrixJson = Json(matrix);
     Check("render_matrix：两个组合、绑定监听标记与总览图", matrix.IsError != true && matrixJson?["rendered"]?.GetValue<int>() == 2 && Images(matrix) == 1
         && (matrixJson?["results"] as JsonArray)?.All(x => x?["bindingTraceVerified"]?.GetValue<bool>() == true) == true, Texts(matrix));
+
+    // WinForms 只有 light 主题：默认主题必须按栈收窄，否则矩阵必定半失败（exit 1 + IsError）。
+    var winFormsMatrix = await Call("render_matrix", new() { ["stack"] = "winforms" });
+    // 只剩一个组合时脚本按单结果返回（没有 rendered 字段），所以看 status / stack。
+    var winFormsJson = Json(winFormsMatrix);
+    Check("render_matrix 对 winforms 默认只渲染 light", winFormsMatrix.IsError != true
+        && winFormsJson?["status"]?.GetValue<string>() == "ok" && winFormsJson?["stack"]?.GetValue<string>() == "winforms", Texts(winFormsMatrix));
 
     var results = matrixJson?["results"] as JsonArray;
     if (results is { Count: 2 })

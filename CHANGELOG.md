@@ -2,6 +2,29 @@
 
 版本号记录在 `VERSION`，并与 `.claude-plugin/plugin.json`、`.codex-plugin/plugin.json`、`plugin.json`、`mcp/AgentRender/AgentRender.csproj` 保持一致（`tests/validate-plugins.ps1` 检查）。渲染结果的 `manifest.json` / `summary.json` 记录生成它的 `toolVersion`。
 
+## 未发布
+
+### 深度审计第一批修正
+- `get_layout`：补 `totalIssueCount`（布局真实条数，与筛选后的 `issueCount` 区分）与 `nodesTruncated`；`kind` 拼错时直接报错并列出可选值（以前返回空列表 + `issueCount: 0`，看起来像「这类问题一个都没有」）；节点被截断时 `note` 不再断言「视图里没有这个元素」。
+- `render_matrix`：默认主题按技术栈取，`stack: winforms` 时只渲染 `light`（以前默认 `light` + `dark`，WinForms 的 dark 必失败，整个矩阵汇总成 exit 1）。
+- `render_matrix` 的服务端超时从 30 分钟降到 25 分钟：Codex 插件的 `tool_timeout_sec` 正是 1800 秒，两边同时超时时客户端会抢走服务端的超时结论与 `outDir`。
+- 业务 `build` 移到缓存宿主互斥量之内：以前两个会话同时 `build: true` 会对同一 `bin` / `obj` 并发构建，偶发 `failed:build`。
+- 缓存键：改用**推断出的** TFM / 位数 / Avalonia 包版本（不再用原始参数），大小写与空格归一；并把 `scripts\*.ps1` 与 `VERSION` 一并纳入 —— 只改推断规则（TFM、位数、Avalonia 基线）而不改模板时，旧宿主也必须失效。
+- 修一个比审计结论更严重的真问题：资产目录用 `..\assets\<栈>` 这类相对路径，**按调用方当前位置解析**。CWD 不在 `scripts\` 时一个模板 `.cs` 都哈希不到，于是改了宿主源码后缓存不失效、继续跑旧宿主（测试假绿的一个来源）。现在统一转绝对路径，并有用例锁定。
+- `-RetentionDays` 的清理范围补上 `-NoCache` 的一次性宿主目录（`%TEMP%\agent-render-<GUID>`）与构建失败留下的 `agent-render-build-*.log`：这类目录以前只增不减（本机已积 35 个）。
+- 文档：SKILL 里 Avalonia 的能力写窄了（说只有初始截图 / 绑定日志 / 布局报告）、`verification.md` 说 `layout.json` 的 `rect` 是相对根元素（实际是截图坐标）、SKILL 脚本模式漏了 `-Build`（不加会渲染旧程序集并拿到假的 `ok`）、README 说「两份插件清单」（实际三份）、README 覆盖表漏 Avalonia 与交互步骤两行、旧入口 SKILL 还写着两栈；`cli.md` 补 `summary.json` 的 `outDir` / `toolVersion` / `exitCode` / `mode` / `pixelSize` / `actualSizeDip` / `stack` 与 overlap 的 15% 阈值。
+- `list_views`：配置里没有 `views` 时以前报「不能对 Null 值表达式调用方法」，现在返回空数组。
+- 用例：新增 `cache-key`（缓存键的规范化、模板与脚本失效、Avalonia 基线、资产目录必须是绝对路径）与 `get_layout` 的两条 MCP 断言（总条数、拼错 `kind` 报错）。
+
+### 深度审计第二批（测试可信度）
+- 每个成功渲染都校验截图本体：PNG 的实际尺寸必须与 `manifest.pixelWidth` / `pixelHeight` 一致（以前 `pixelSize` 只是 `ceil(dip*dpi/96)` 的算术回显），采样点与背景色不同才算「画了内容」，`background` 标为全透明时 PNG 里必须真的有 alpha=0 像素。实测这套检查能抓到全空白图与尺寸不符，也能放过稀疏界面（12px 高的小字会被 256 分频采样捕到）。
+- 新增 `resource-dictionary` 用例：`-ResourceDictionary` 与 `{theme}` 占位符以前全仓零覆盖，现在用两份颜色不同的字典证明按主题真的换了文件（截图中心像素判色），并断言 Avalonia 拒绝 `pack://` 字典。
+- Avalonia 11 档不再静默跳过：缺包时用 `tests/fixtures/Avalonia11Refs` 还原 11.3.22，仍缺则算失败（以前干净机器上这条 `continue` 掉，11 档等于没有覆盖）。
+- Avalonia 补 `-Element` **成功**路径：断言元素矩形为截图坐标 `10,110,100,36`，144 DPI 下 `element.png` 宽度 150（以前只测了「找不到」）。
+- `logic-tests` 加上「实际执行了多少用例」的断言（`Passed:` ≥ 10）：过滤条件写错或 discovery 失效时，退出码 0 不再等于通过。
+- MCP E2E 补 `render_matrix` 对 `stack: winforms` 默认只渲染 light 的断言。
+- Stop hook 按剩余预算给每次渲染传 `-TimeoutSeconds`（上限 600）：以前只约束「等缓存宿主的锁」，锁拿到后不再看时间，多组合预设能把 hook 顶穿 900 秒被客户端杀掉，状态写不下来、下一轮从头重跑。
+
 ## 2.2.0 – 2026-11-20
 
 ### WinForms 技术栈（第三档）

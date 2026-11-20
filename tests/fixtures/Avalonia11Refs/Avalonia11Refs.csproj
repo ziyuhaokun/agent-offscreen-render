@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 只为让 NuGet 缓存里有一份 Avalonia 11.3.22（stack-rules 用它验证 11 档的宿主推断）。
+       没有源文件：EnableDefaultCompileItems=false，dotnet restore 即可下载包。 -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+  </ItemGroup>
+</Project>

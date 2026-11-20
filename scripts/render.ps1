@@ -55,6 +55,32 @@ if (-not $IsWindows) { throw 'agent-render 的 WPF / WinForms 宿主需要 Windo
 # 相对路径按 PowerShell 当前位置解析：.NET 文件 API 使用进程工作目录，Set-Location 不会改变它。
 $CacheRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($CacheRoot)
 
+# 业务构建：放在按配置目录命名的独立互斥量里，因为缓存宿主的键要等程序集构建完才能算。
+# 以前完全不加锁，两个会话同时 build: true 会对同一 bin / obj 并发构建，偶发 failed:build。
+function Invoke-BusinessBuild {
+    $lockName = 'Local\agent-render-build-' + (Get-FileHash -InputStream ([IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes("$configDir".ToLowerInvariant()))) -Algorithm SHA256).Hash.Substring(0, 16)
+    $mutex = [Threading.Mutex]::new($false, $lockName)
+    try {
+        try { $null = $mutex.WaitOne([TimeSpan]::FromSeconds($buildLockWait)) }
+        catch [Threading.AbandonedMutexException] { }
+        $buildLog = Join-Path ([IO.Path]::GetTempPath()) ('agent-render-build-' + [guid]::NewGuid().ToString('N') + '.log')
+        Push-Location -LiteralPath $configDir
+        # 先清零：build 是 .ps1 脚本时在当前进程中运行，不一定设置 $LASTEXITCODE，会沿用上一次渲染的退出码。
+        $global:LASTEXITCODE = 0
+        try { & $buildCommand[0] @($buildCommand | Select-Object -Skip 1) *> $buildLog; $buildCode = $LASTEXITCODE }
+        finally { Pop-Location }
+        if ($buildCode -ne 0) {
+            $tail = (Get-Content -LiteralPath $buildLog -Tail 30) -join "`n"
+            throw "业务项目构建失败（退出码 $buildCode，完整日志 $buildLog）：`n$tail"
+        }
+        Remove-Item -LiteralPath $buildLog -ErrorAction SilentlyContinue
+    }
+    finally {
+        try { $mutex.ReleaseMutex() } catch [ApplicationException] { }
+        $mutex.Dispose()
+    }
+}
+
 # 预设的查找、解析与合并规则在 Preset.ps1 中统一维护（list-views.ps1 共用），本脚本只处理参数覆盖与构建。
 if ($Preset -or $Config -or $Build) {
     . (Join-Path $PSScriptRoot 'Preset.ps1')
@@ -91,19 +117,11 @@ if ($Preset -or $Config -or $Build) {
 
     if ($Build) {
         # build 为参数数组（不经过 shell），如 ["dotnet", "build", "src/MyApp/MyApp.csproj", "-c", "Debug"]。
-        $command = @($settings.build)
-        if (-not $command -or -not $command[0]) { throw "$Config 没有为 $Preset 配置 build 命令。" }
-        $buildLog = Join-Path ([IO.Path]::GetTempPath()) ('agent-render-build-' + [guid]::NewGuid().ToString('N') + '.log')
-        Push-Location -LiteralPath $configDir
-        # 先清零：build 是 .ps1 脚本时在当前进程中运行，不一定设置 $LASTEXITCODE，会沿用上一次渲染的退出码。
-        $global:LASTEXITCODE = 0
-        try { & $command[0] @($command | Select-Object -Skip 1) *> $buildLog; $buildCode = $LASTEXITCODE }
-        finally { Pop-Location }
-        if ($buildCode -ne 0) {
-            $tail = (Get-Content -LiteralPath $buildLog -Tail 30) -join "`n"
-            throw "业务项目构建失败（退出码 $buildCode，完整日志 $buildLog）：`n$tail"
-        }
-        Remove-Item -LiteralPath $buildLog -ErrorAction SilentlyContinue
+        $buildCommand = @($settings.build)
+        if (-not $buildCommand -or -not $buildCommand[0]) { throw "$Config 没有为 $Preset 配置 build 命令。" }
+        # 必须在解析 -AssemblyPath 之前构建（预设里的程序集很可能刚刚才生成），所以用独立锁而不是缓存宿主的锁。
+        $buildLockWait = if ($PSBoundParameters.ContainsKey('LockTimeoutSeconds')) { $LockTimeoutSeconds } else { 1800 }
+        Invoke-BusinessBuild
     }
 }
 
@@ -205,8 +223,16 @@ if ($NoCache) {
 
 # 缓存键、构建戳与过期清理在 Cache.ps1 中统一维护。
 . (Join-Path $PSScriptRoot 'Cache.ps1')
-$assetDirs = @((Join-Path $PSScriptRoot "..\assets\$Stack"), (Join-Path $PSScriptRoot '..\assets\shared'))
-$key = Get-WpfRenderCacheKey $generator $assetDirs $TargetFramework $Platform "$FactoryFile" $assemblies
+$assetDirs = @((Join-Path $PSScriptRoot "..\assets\$Stack"), (Join-Path $PSScriptRoot '..\assets\shared')) |
+    ForEach-Object { [IO.Path]::GetFullPath($_) } # 相对路径按调用方当前位置解析，哈希不到任何模板文件（缓存就不会因模板改动失效）
+# 缓存键用推断出的宿主设置（TFM / 位数 / Avalonia 包版本），不用原始参数：
+# 省略参数与显式传同一值、大小写不同、以及改了推断规则的脚本发布后，都不应该复用旧宿主。
+$hostInfo = if ($Stack -eq 'avalonia') { Get-AvaloniaHostInfo $assemblies $TargetFramework $Platform }
+    else { Get-HostFrameworks $assemblies $TargetFramework $Platform }
+# 编排脚本与 VERSION 也进键：改了 Stack / HostFrameworks / Steps 等逻辑后，缓存的宿主随之失效。
+$toolScripts = @(Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.ps1' -File | ForEach-Object FullName) +
+    @([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\VERSION')))
+$key = Get-WpfRenderCacheKey $generator $assetDirs $hostInfo.TargetFramework $hostInfo.Platform "$($hostInfo.AvaloniaVersion)" "$FactoryFile" $assemblies $toolScripts
 $workDir = Join-Path $CacheRoot $key
 $null = New-Item -ItemType Directory -Path $CacheRoot -Force
 
@@ -232,12 +258,11 @@ try {
         $noBuild = $cache -and $cache.built -and ((@($cache.stamps) -join "`n") -eq ($stamps -join "`n"))
         if (-not $noBuild) {
             # 程序集路径不变但 TFM / 位数变了（如 4.6.1 升级到 4.8、切换“首选 32 位”）：缓存工程中的设置已过时，需要重新生成。
-            $inferred = & $generator @generate -InferOnly
             $current = ([xml](Get-Content -LiteralPath $projectPath -Raw)).Project.PropertyGroup
             # Avalonia：业务程序集升级了引用的 Avalonia 版本时，缓存工程中的包版本也已过时。
-            $avaloniaStale = $Stack -eq 'avalonia' -and $inferred.AvaloniaVersion -and
-                -not (Select-String -LiteralPath $projectPath -SimpleMatch "Include=`"Avalonia`" Version=`"$($inferred.AvaloniaVersion)`"" -Quiet)
-            if ("$($current.TargetFramework)".Trim() -ne $inferred.TargetFramework -or "$($current.PlatformTarget)".Trim() -ne $inferred.Platform -or $avaloniaStale) {
+            $avaloniaStale = $Stack -eq 'avalonia' -and $hostInfo.AvaloniaVersion -and
+                -not (Select-String -LiteralPath $projectPath -SimpleMatch "Include=`"Avalonia`" Version=`"$($hostInfo.AvaloniaVersion)`"" -Quiet)
+            if ("$($current.TargetFramework)".Trim() -ne $hostInfo.TargetFramework -or "$($current.PlatformTarget)".Trim() -ne $hostInfo.Platform -or $avaloniaStale) {
                 Remove-Item -LiteralPath $workDir -Recurse -Force
             }
         }
@@ -269,6 +294,8 @@ finally {
 
 # 清理过期缓存与渲染结果（策略在 Cache.ps1）。
 Remove-ExpiredWpfRenderCache $CacheRoot $workDir $RetentionDays
+# 一次性宿主、构建日志这类临时目录不在缓存根里，按同一保留天数清掉。
+Remove-ExpiredRenderScratch $RetentionDays
 
 $global:LASTEXITCODE = $run.ExitCode
 $run.OutDir

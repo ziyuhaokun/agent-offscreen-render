@@ -11,7 +11,9 @@ $configDir = Split-Path -Parent $path
 $file = Read-WpfRenderConfigFile $path
 
 $views = @()
-foreach ($name in @($file.views.Keys | Sort-Object)) {
+# views 缺失时 ``$file.views.Keys`` 是 None 上的属性访问，报「不能对 Null 值表达式调用方法」——对用户毫无指向性。
+$viewTable = if ($file.views) { $file.views } else { [ordered]@{} }
+foreach ($name in @($viewTable.Keys | Sort-Object)) {
     $merged = Merge-WpfRenderPreset $file $name
     $view = [ordered]@{
         name = $name

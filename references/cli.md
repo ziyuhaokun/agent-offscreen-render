@@ -58,7 +58,7 @@ WPF 宿主源码只使用 .NET Framework 4.7.2 与 .NET 5+ 共有的 API（不�
 | `-CacheRoot` | `%TEMP%\agent-render-cache` | 缓存宿主所在目录；清理只处理本工具创建的缓存目录（16 位十六进制名称），不会删除其中的其他内容 |
 | `-NoCache` | 关 | 生成一次性宿主，不读写缓存 |
 | `-LockTimeoutSeconds` | `(TimeoutSeconds + 60) × 16 + 900` | 同一缓存宿主正被另一个渲染占用时的等待上限（秒），超过即报错「等待缓存宿主超时」。MCP 的 `render_view` / `render_matrix` 分别传 600 / 900，Stop hook 按剩余时间预算传入，都小于调用方自己的超时 |
-| `-RetentionDays` | `7` | 超过该天数未使用的缓存宿主与渲染结果会被自动删除（作为兜底清理；验证完且确认无用的快照输出目录应由 Agent 主动删除） |
+| `-RetentionDays` | `7` | 超过该天数未使用的缓存宿主、渲染结果、`-NoCache` 一次性宿主目录（`%TEMP%\agent-render-<GUID>`）与构建失败日志会被自动删除（作为兜底清理；验证完且确认无用的快照输出目录应由 Agent 主动删除） |
 
 缓存键由程序集路径、`-TargetFramework` / `-Platform`、`-FactoryFile` 路径与工具版本（生成器和 `assets/*.cs` 的哈希）组成；视图参数每次重写 `harness.json`。业务程序集所在目录中任一 dll / exe 的大小或修改时间变化时重新构建，否则跳过构建；若程序集的 TFM 或位数也变了（如 4.6.1 升级到 4.8），先重新生成宿主工程。同一缓存宿主用系统互斥量串行化，多个代理并发调用也不会同时构建。
 
@@ -163,7 +163,7 @@ DPI：进程不感知 DPI，布局与字体度量固定按 96 DPI（与机器缩
 | `build.log` | 未使用 `-NoBuild` | `dotnet build` 完整输出 |
 | `render.stdout.log` / `render.stderr.log` | 子进程启动后 | 宿主标准输出 / 错误 |
 | `error.txt` | 失败时 | 异常堆栈、自检失败、进程无法启动或超时说明。宿主崩溃而没有写出它时（如缺少 WindowsDesktop 运行时），`summary.json` 的 `error` 取 `render.stderr.log` 的末尾 |
-| `summary.json` | 总是 | 结论摘要：`status`（`ok` / `binding-issues` / `failed:build` / `failed:locate` / `failed:start` / `failed:render` / `failed:timeout` / `failed:step`）、`snapshot`、`elementSnapshot` / `elementRectDip` / `elementError`（使用 `-Element` 时）、`warning`（如窗口模式下 RightToLeft 的业务 Window 截图未镜像）、`sourceViewType`、尺寸、衬底、前 5 条绑定问题（`bindingIssues`，解析后的单行结论）、布局问题条数与前 10 条（`layoutIssueCount` / `layoutIssues`）、编译错误、异常前 15 行；同时打印到控制台 |
+| `summary.json` | 总是 | 结论摘要（另有 `outDir`（后续 `get_layout` / `compare_snapshots` 的入口）、`toolVersion`、`exitCode`、`mode`、`pixelSize`、`actualSizeDip`、`stack`）：`status`（`ok` / `binding-issues` / `failed:build` / `failed:locate` / `failed:start` / `failed:render` / `failed:timeout` / `failed:step`）、`snapshot`、`elementSnapshot` / `elementRectDip` / `elementError`（使用 `-Element` 时）、`warning`（如窗口模式下 RightToLeft 的业务 Window 截图未镜像）、`sourceViewType`、尺寸、衬底、前 5 条绑定问题（`bindingIssues`，解析后的单行结论）、布局问题条数与前 10 条（`layoutIssueCount` / `layoutIssues`）、编译错误、异常前 15 行；同时打印到控制台 |
 
 `layout.json` 的布局问题（只检查有文本的 `TextBlock`、有图像的 `Image` 与 `Control`，容器本身不报告）：
 
@@ -171,7 +171,7 @@ DPI：进程不感知 DPI，布局与字体度量固定按 96 DPI（与机器缩
 | --- | --- | --- |
 | `text-truncated` | 文本按当前字体放不下分到的布局空间（不换行时比较宽度，换行时比较高度），含已显示省略号的情况 | — |
 | `clipped` | 非文本内容元素（`Image`、`Control`）分到的布局空间小于所需尺寸，或任意内容元素被祖先容器的布局空间裁掉一部分 | `ScrollViewer` 视口、`ClipToBounds`、显式 `Clip` 造成的裁切 |
-| `overlap` | 两段文本的墨迹区域互相覆盖（按文本对齐计算实际字形范围） | 同一单元格中左右 / 居中对齐、字形不相交的文本 |
+| `overlap` | 两段文本的墨迹区域互相覆盖（按文本对齐计算实际字形范围；重叠面积超过较小者 15% 且大于 4 DIP 才报告） | 同一单元格中左右 / 居中对齐、字形不相交的文本 |
 | `zero-size` | 有内容的元素分到的布局空间宽或高为 0 | `Visibility` 不是 `Visible` 的元素及其子树；`Control` 不报告（滚动条按钮等常为 0） |
 | `out-of-viewport` | 元素可见部分超出 `-Width` × `-Height` 视口 | 滚动区域内被视口裁掉的部分 |
 

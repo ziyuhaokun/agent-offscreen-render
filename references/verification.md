@@ -25,7 +25,7 @@ Get-Content -LiteralPath (Join-Path $outDir 'binding-errors.txt')
 - `zero-size`：有内容的元素宽或高为 0，通常是固定尺寸、`*` 行列分配为 0 或父容器被压缩。
 - `out-of-viewport`：可见部分超出渲染视口；可能是视口太小，也可能是页面真的溢出，换更大的 `-Width` / `-Height` 再渲染区分。
 
-这些是线索，不影响退出码。逐条对照 PNG 确认后再修改；确认属于有意设计的，在报告中说明即可。需要定位某个元素时，在 `layout.json` 的 `nodes` 中按 `name` 或 `text` 查 `rect`（相对根元素的 DIP 坐标 `[x, y, w, h]`）。检查不覆盖：颜色对比度、图标缺失、字形回退、Popup / 原生窗口内容，以及 `Visibility` 非 `Visible` 的元素。
+这些是线索，不影响退出码。逐条对照 PNG 确认后再修改；确认属于有意设计的，在报告中说明即可。需要定位某个元素时，在 `layout.json` 的 `nodes` 中按 `name` 或 `text` 查 `rect`（**截图坐标**下的 DIP 坐标 `[x, y, w, h]`，已计入根元素自身的 Margin / 对齐偏移，可直接对照 `snapshot.png`，与 `elementRectDip` 一致）。检查不覆盖：颜色对比度、图标缺失、字形回退、Popup / 原生窗口内容，以及 `Visibility` 非 `Visible` 的元素。
 
 ## 视觉基线
 

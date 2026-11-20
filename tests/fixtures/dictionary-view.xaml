@@ -1,0 +1,4 @@
+<Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Width="200" Height="100" Background="{DynamicResource AccentBrush}">
+  <TextBlock Text="accent" Foreground="White" Margin="12" />
+</Border>

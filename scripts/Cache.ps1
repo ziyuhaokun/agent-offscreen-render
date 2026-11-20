@@ -3,14 +3,22 @@
 # 策略：同一组 程序集路径 + TFM + 位数 + 工具版本 复用 %TEMP%\agent-render-cache 下的同一宿主；
 # 缓存目录名为 16 位十六进制键；同一键的并发渲染由 Local\agent-render-<键> 互斥量保护（render.ps1 持有）。
 
-# 工具版本键：生成器与宿主模板的内容哈希，加 TFM / 位数 / 工厂 / 程序集。模板更新后自动换新缓存。
-# AssetsDirs 是模板目录列表（技术栈自己的目录加共享目录），不再是单一的 assets 根。
+# 工具版本键：生成器与宿主模板的内容哈希，加 TFM / 位数 / Avalonia 包版本 / 工厂 / 程序集 / 编排脚本。
+# 模板或脚本更新后自动换新缓存。
+# AssetsDirs 是模板目录列表（技术栈自己的目录加共享目录），不再是单一的 assets 根；调用方必须传绝对路径。
+# ToolScripts 是编排层自身的脚本与 VERSION：只改推断规则（TFM、位数、Avalonia 基线）而不改模板时，
+# 旧宿主也必须失效，否则修复要等到业务 dll 变化才生效。
 function Get-WpfRenderCacheKey([string]$GeneratorPath, [string[]]$AssetsDirs,
-    [string]$TargetFramework, [string]$Platform, [string]$FactoryFile, [string[]]$AssemblyPaths) {
-    $toolFiles = @($GeneratorPath) + @($AssetsDirs | ForEach-Object { Get-ChildItem -LiteralPath $_ -Filter '*.cs' } | Sort-Object FullName | ForEach-Object FullName)
+    [string]$TargetFramework, [string]$Platform, [string]$AvaloniaVersion, [string]$FactoryFile, [string[]]$AssemblyPaths,
+    [string[]]$ToolScripts = @()) {
+    $toolFiles = @($GeneratorPath) + @($AssetsDirs | ForEach-Object { Get-ChildItem -LiteralPath $_ -Filter '*.cs' } | Sort-Object FullName | ForEach-Object FullName) +
+        @($ToolScripts | Sort-Object)
     $keySource = [Text.StringBuilder]::new()
     foreach ($file in $toolFiles) { $null = $keySource.AppendLine((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash) }
-    $null = $keySource.AppendLine("tfm=$TargetFramework;platform=$Platform;factory=$("$FactoryFile".ToLowerInvariant())")
+    # TFM / 位数按不区分大小写归一：caller 不传、传 anycpu / AnyCPU、传 net8.0-Windows 不应各建一份宿主。
+    $normalized = @("tfm=$TargetFramework", "platform=$Platform", "avalonia=$AvaloniaVersion", "factory=$FactoryFile") |
+        ForEach-Object { $_.Trim().ToLowerInvariant() }
+    $null = $keySource.AppendLine(($normalized -join ';'))
     foreach ($assembly in $AssemblyPaths | Sort-Object) { $null = $keySource.AppendLine($assembly.ToLowerInvariant()) }
     $keyStream = [IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($keySource.ToString()))
     (Get-FileHash -InputStream $keyStream -Algorithm SHA256).Hash.Substring(0, 16).ToLowerInvariant()
@@ -49,4 +57,17 @@ function Remove-ExpiredWpfRenderCache([string]$CacheRoot, [string]$CurrentWorkDi
     Get-ChildItem -LiteralPath $CurrentWorkDir -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -like 'render-*' -or $_.Name -like 'matrix-*' } |
         Where-Object { $_.LastWriteTime -lt $cutoff } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# -NoCache 的一次性宿主（%TEMP%\agent-render-<32 位 hex>）、构建失败保留的日志、hook 的状态目录都不在缓存根里，
+# 以前只增不减。只动本工具自己的命名，且只删超过保留天数没有写过的。
+function Remove-ExpiredRenderScratch([int]$RetentionDays) {
+    $cutoff = (Get-Date).AddDays(-$RetentionDays)
+    $temp = [IO.Path]::GetTempPath()
+    foreach ($dir in @(Get-ChildItem -LiteralPath $temp -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^agent-render-[0-9a-f]{32}$' -and $_.LastWriteTime -lt $cutoff })) {
+        try { Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue } catch { }
+    }
+    Get-ChildItem -LiteralPath $temp -File -Filter 'agent-render-build-*.log' -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt $cutoff } | Remove-Item -Force -ErrorAction SilentlyContinue
 }

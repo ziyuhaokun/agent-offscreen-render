@@ -48,7 +48,7 @@
 
 ## 安装到代理
 
-**前提**：Windows 本机，已安装 PowerShell 7（`pwsh`）与 .NET 8 或更高版本的 SDK（只装了 .NET 9 / 10 也可以，MCP 服务器与内置样例会前滚到已安装的版本）。MCP 服务器首次启动时会编译到 `%LOCALAPPDATA%\agent-render\mcp`，之后直接启动。冷启动的首次编译（含 NuGet 还原）可能超过客户端的 MCP 启动超时，建议安装后先预热一次：`pwsh -ExecutionPolicy Bypass -File <插件目录>\mcp\start.ps1 -BuildOnly`（Claude Code 也可以用环境变量 `MCP_TIMEOUT` 调大超时；Codex 插件已把启动与工具调用超时设为 180 秒 / 30 分钟）。首次编译需要访问 NuGet；离线或内网环境的做法见 [verification.md](references/verification.md#离线与内网环境)。
+**前提**：Windows 本机，已安装 PowerShell 7（`pwsh`）与 .NET 8 或更高版本的 SDK（只装了 .NET 9 / 10 也可以，MCP 服务器与内置样例会前滚到已安装的版本）。MCP 服务器首次启动时会编译到 `%LOCALAPPDATA%\agent-render\mcp`，之后直接启动。冷启动的首次编译（含 NuGet 还原）可能超过客户端的 MCP 启动超时，建议安装后先预热一次：`pwsh -ExecutionPolicy Bypass -File <插件目录>\mcp\start.ps1 -BuildOnly`（Claude Code 用环境变量 `MCP_TIMEOUT` 调大超时；Codex 插件已把启动与工具调用超时设为 180 秒 / 1800 秒；Antigravity 的 `mcp_config.json` 本身不带超时字段，客户端若允许配置请把工具超时设到 30 分钟以上，否则先预热再在空闲时渲染 —— 客户端超时短于服务端时，服务端写好的结论送不回代理）。首次编译需要访问 NuGet；离线或内网环境的做法见 [verification.md](references/verification.md#离线与内网环境)。
 
 ### 让代理帮你安装 / 更新
 
@@ -200,9 +200,9 @@ Codex 不装插件时也可以执行 `codex mcp add agent-render -- pwsh -NoProf
 | MCP 工具 | 用途 |
 | --- | --- |
 | `render_view` | 渲染一个视图（或预设），返回 JSON 摘要和截图；传 `element` 时另附该元素的截图；传 `steps` 时依次执行交互步骤，返回每步摘要和步骤总览图 |
-| `render_matrix` | 一次渲染多个主题 × 尺寸 × DPI，返回汇总和总览图 |
+| `render_matrix` | 一次渲染多个主题 × 尺寸 × DPI（默认 `light` + `dark`，`stack: winforms` 只渲染 `light`），返回汇总和总览图 |
 | `compare_snapshots` | 对比两次渲染，返回变化区域和差异图（变化像素标红） |
-| `get_layout` | 按元素名、文本或问题类型查询某次渲染的布局树 |
+| `get_layout` | 按元素名、文本或问题类型查询某次渲染的布局树；`issueCount` 是筛选后的条数，真实总数看 `totalIssueCount`，节点超上限时 `nodesTruncated` 为 true（此时查不到元素不代表它不存在） |
 | `list_views` | 列出业务项目 `agent-render.json` 中登记的视图 |
 | `self_test` | 环境自检 |
 
@@ -356,7 +356,7 @@ dotnet run --project mcp/AgentRender.Tests -- --root .   # MCP 客户端测试�
 
 CI 在 Windows 上运行全部端到端用例（含 MCP），在 Linux 上运行 MCP 协议测试、插件清单检查与 `claude plugin validate --strict`。
 
-修改行为时同步更新 `SKILL.md`、`references/` 与本 README；`SKILL.md` 的 `description` 决定代理何时加载此 skill。发布新版本时同时修改 `VERSION`、两份插件清单与 `mcp/AgentRender/AgentRender.csproj` 中的版本号，并更新 `CHANGELOG.md`。
+修改行为时同步更新 `SKILL.md`、`references/` 与本 README；`SKILL.md` 的 `description` 决定代理何时加载此 skill。发布新版本时同时修改 `VERSION`、三份插件清单（`.claude-plugin/plugin.json`、`.codex-plugin/plugin.json`、根目录 `plugin.json`）与 `mcp/AgentRender/AgentRender.csproj` 中的版本号，并更新 `CHANGELOG.md`。
 
 <details>
 <summary>测试覆盖</summary>
@@ -367,10 +367,14 @@ CI 在 Windows 上运行全部端到端用例（含 MCP），在 Linux 上运行
 | 免代码接入 | `xaml-ok`、`net8-view`、`net472-view` |
 | 绑定错误检出与解析 | `xaml-binding-error`、`net8-broken-binding`、`net472-broken-binding` |
 | 布局检查：五类问题全部检出、正常布局零误报 | `net8-layout-problems`、`net472-layout-problems`、`net8-scroll-no-false-positive` |
-| 缓存、多组合、元素截图、前后对比 | `render-cache`、`render-matrix`、`net8-element`、`net8-element-missing`、`compare-snapshots` |
+| 缓存、多组合、元素截图、前后对比 | `render-cache`、`render-matrix`、`net8-element`、`net8-element-offset`、`net8-element-missing`、`compare-snapshots` |
+| 缓存键与过期清理 | `cache-key`、`cache-cleanup`、`lock-timeout` |
+| 资源字典与 `{theme}` 占位符 | `resource-dictionary` |
+| 交互步骤与动画取帧 | `steps-net8`、`steps-net472`、`steps-layout-only`、`steps-failure`、`steps-custom` |
 | DataContext 工厂与预设 | `factory-method`、`factory-file`、`preset` |
 | MCP 服务器与 Stop hook | `mcp-server`、`stop-hook` |
 | 框架 / 位数推断与拒绝 | `net472-x86-view`、`sample-net10`、`reject-mixed-runtimes`、`reject-lower-tfm`、`reject-platform-conflict` |
+| Avalonia 技术栈 | `avalonia`、`avalonia-layout` |
 | WinForms 技术栈 | `winforms-sample`、`winforms-net8-view`、`winforms-net48-view`、`winforms-factory-method`、`winforms-broken-binding`、`winforms-text-fit`、`winforms-empty-source`、`winforms-small-viewport`、`winforms-layout-problems`、`winforms-scroll-no-false-positive`、`winforms-form-load`、`winforms-element`、`winforms-element-missing`、`winforms-dark-rejected`、`winforms-window-host-rejected`、`winforms-steps-rejected`、`winforms-xaml-rejected` |
 
 </details>

@@ -1,6 +1,6 @@
 ---
 name: wpf-offscreen-render
-description: 兼容入口：请使用 agent-render skill；它支持 WPF 与 Avalonia 离屏渲染。
+description: 兼容入口：请使用 agent-render skill；它支持 WPF / Avalonia / WinForms 离屏渲染。
 ---
 
 # 兼容入口

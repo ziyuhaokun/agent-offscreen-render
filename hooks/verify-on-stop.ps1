@@ -93,20 +93,26 @@ $builtCommands = [Collections.Generic.HashSet[string]]::new()
 $budgetSeconds = 780
 $renderReserveSeconds = 150
 $minLockWaitSeconds = 30
+# 单次渲染自身的上限：剩余预算减去留给后面视图与收尾的时间。以前只约束「等锁」，
+# 锁一旦拿到就不再看时间，多组合预设能把 hook 顶穿 900 秒被客户端杀掉。
+$minRenderSeconds = 30
 $clock = [Diagnostics.Stopwatch]::StartNew()
 foreach ($name in $affected | Sort-Object) {
     $view = $config.views[$name]
-    $lockWait = [int]($budgetSeconds - $clock.Elapsed.TotalSeconds - $renderReserveSeconds)
+    $remaining = [int]($budgetSeconds - $clock.Elapsed.TotalSeconds)
+    $lockWait = [int]($remaining - $renderReserveSeconds)
     if ($lockWait -lt $minLockWaitSeconds) {
         $problems.Add("[$name] 本轮验证的时间预算（$budgetSeconds 秒）已用完，未渲染；请用 render_view 手动验证这个视图。")
         continue
     }
+    # 给这次渲染的自身超时：至少 30 秒，最多不超过「剩余预算 - 等锁预留」，且不能超过 render.ps1 的 -TimeoutSeconds 上限（600）。
+    $renderTimeout = [int][Math]::Max($minRenderSeconds, [Math]::Min(600, [Math]::Min($remaining - $minLockWaitSeconds, $lockWait)))
     $buildCommand = @(if ($view.build) { $view.build } elseif ($defaults.build) { $defaults.build })
     # 同一构建命令只执行一次。
     $build = $buildCommand.Count -gt 0 -and $builtCommands.Add(($buildCommand -join ' '))
     try {
         # 只保留管道输出（渲染目录）：警告等流在 -File 模式下会写到 stdout，混进 hook 的 JSON 输出。
-        $outDir = & $render -Config $configPath -Preset $name -Build:$build -LockTimeoutSeconds $lockWait 3> $null 4> $null 5> $null 6> $null
+        $outDir = & $render -Config $configPath -Preset $name -Build:$build -TimeoutSeconds $renderTimeout -LockTimeoutSeconds $lockWait 3> $null 4> $null 5> $null 6> $null
         # 结果形态（matrix / 单结果）的解析统一在 Results.ps1。
         . (Join-Path $PSScriptRoot '..\scripts\Results.ps1')
         try { $result = Read-WpfRenderResult "$outDir" }

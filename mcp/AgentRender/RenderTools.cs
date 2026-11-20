@@ -14,7 +14,9 @@ public sealed class RenderTools(ScriptRunner runner)
     private const int MaxImageSide = 2400;
     // 等缓存宿主锁的上限必须明显短于工具超时：等不到锁时，「另一个渲染占用」的结论才能送回代理，而不是被工具超时笼统终止。
     private static readonly TimeSpan RenderViewTimeout = TimeSpan.FromMinutes(20);
-    private static readonly TimeSpan RenderMatrixTimeout = TimeSpan.FromMinutes(30);
+    // Codex 插件的 tool_timeout_sec 是 1800 秒：服务端必须明显短于它，否则两边同时超时，
+    // 服务端写好的超时结论与 outDir 会被客户端抢掉。
+    private static readonly TimeSpan RenderMatrixTimeout = TimeSpan.FromMinutes(25);
     private const int RenderViewLockWaitSeconds = 600;
     private const int RenderMatrixLockWaitSeconds = 900;
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
@@ -154,7 +156,10 @@ public sealed class RenderTools(ScriptRunner runner)
         if (!OperatingSystem.IsWindows()) return WindowsOnly();
         if ((RelativePathError(("xaml", xaml)) ?? RelativePathError("assemblyPaths", assemblyPaths)) is { } pathError) return Error(pathError);
         var arguments = ViewArguments(assemblyPaths, stack, viewType, xaml, dataContextType, resourceDictionaries, targetFramework, platform);
-        arguments["Theme"] = themes is { Length: > 0 } ? themes : new[] { "light", "dark" };
+        arguments["Theme"] = themes is { Length: > 0 }
+            ? themes
+            // 默认与宿主能力对齐：WinForms 只有 light，带 dark 会让矩阵必定半失败（汇总 exit 1，代理会去修不存在的 bug）。
+            : stack == "winforms" ? new[] { "light" } : new[] { "light", "dark" };
         arguments["Size"] = sizes is { Length: > 0 } ? sizes : null;
         arguments["Dpi"] = dpis is { Length: > 0 } ? dpis : new[] { 96 };
         arguments["Background"] = background;
@@ -208,10 +213,14 @@ public sealed class RenderTools(ScriptRunner runner)
     public CallToolResult GetLayout(
         [Description("render_view 返回的 outDir")] string outDir,
         [Description("按 x:Name 精确匹配或按文本包含匹配的元素；返回其子树")] string? element = null,
-        [Description("只返回该类型的布局问题：text-truncated / clipped / overlap / zero-size / out-of-viewport")] string? kind = null,
-        [Description("最多返回的节点数")] int maxNodes = 200)
+        [Description("只返回该类型的布局问题：text-truncated / clipped / overlap / zero-size / out-of-viewport；不传则返回全部")] string? kind = null,
+        [Description("最多返回的节点数。layout.json 超过 3000 个节点时会被截断，响应里的 nodesTruncated 会说明")] int maxNodes = 200)
     {
         if (RelativePathError(("outDir", outDir)) is { } pathError) return Error(pathError);
+        // 拼错的 kind 以前会返回空列表 + issueCount=0，看起来就像「这类问题一个都没有」。
+        string[] kinds = ["text-truncated", "clipped", "overlap", "zero-size", "out-of-viewport"];
+        if (kind is not null && !kinds.Contains(kind, StringComparer.Ordinal))
+            return Error($"未知的 kind「{kind}」：可选 {string.Join(" / ", kinds)}（不传则不筛选）。");
         var layout = ReadJson(Path.Combine(outDir, "layout.json"));
         if (layout is null) return Error($"找不到 {Path.Combine(outDir, "layout.json")}（渲染是否成功？）");
         var issues = (layout["issues"] as JsonArray ?? [])
@@ -235,16 +244,25 @@ public sealed class RenderTools(ScriptRunner runner)
                 break;
             }
         }
+        // issueCount 是筛选后的条数；布局真实的条数与节点截断状态必须一并返回，
+        // 否则代理筛一类问题看到 0 就会当成「布局没问题」，或把截断后查不到的元素当成不存在。
+        var truncated = layout["nodesTruncated"]?.GetValue<bool>() == true;
         var response = new JsonObject
         {
             ["viewport"] = layout["viewport"]?.DeepClone(),
             ["nodeCount"] = layout["nodeCount"]?.DeepClone(),
+            ["nodesTruncated"] = truncated,
             ["issueCount"] = issues.Count,
+            ["totalIssueCount"] = layout["issueCount"]?.DeepClone(),
+            ["kind"] = kind,
             ["issues"] = new JsonArray(issues.ToArray()),
             ["element"] = element,
             ["matchedNodes"] = element is null ? null : selected,
         };
-        if (element is not null && selected.Count == 0) response["note"] = $"没有名称为 {element} 或文本包含它的可见元素。";
+        if (element is not null && selected.Count == 0)
+            response["note"] = truncated
+                ? $"没有名称为 {element} 或文本包含它的可见元素；节点已按上限截断，不代表视图里没有这个元素。"
+                : $"没有名称为 {element} 或文本包含它的可见元素。";
         return new CallToolResult { Content = [Text(response)] };
     }
 
