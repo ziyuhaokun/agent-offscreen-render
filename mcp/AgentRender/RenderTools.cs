@@ -12,6 +12,11 @@ public sealed class RenderTools(ScriptRunner runner)
     // 超过这个尺寸的图片只返回路径，避免撑满代理上下文。
     private const int MaxImageBytes = 1_500_000;
     private const int MaxImageSide = 2400;
+    // 等缓存宿主锁的上限必须明显短于工具超时：等不到锁时，「另一个渲染占用」的结论才能送回代理，而不是被工具超时笼统终止。
+    private static readonly TimeSpan RenderViewTimeout = TimeSpan.FromMinutes(20);
+    private static readonly TimeSpan RenderMatrixTimeout = TimeSpan.FromMinutes(30);
+    private const int RenderViewLockWaitSeconds = 600;
+    private const int RenderMatrixLockWaitSeconds = 900;
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     // 渲染会构建项目（build: true 时执行预设命令）、运行业务代码并写入文件，不能标为只读，以免客户端据此自动批准。
@@ -78,7 +83,8 @@ public sealed class RenderTools(ScriptRunner runner)
         arguments["Steps"] = steps is { ValueKind: JsonValueKind.Array } ? steps.Value.GetRawText() : null;
         arguments["ContinueOnError"] = continueOnError;
         arguments["Animations"] = animations;
-        var result = await runner.RunAsync(Path.Combine("scripts", "render.ps1"), arguments, TimeSpan.FromMinutes(20), cancellationToken);
+        arguments["LockTimeoutSeconds"] = RenderViewLockWaitSeconds;
+        var result = await runner.RunAsync(Path.Combine("scripts", "render.ps1"), arguments, RenderViewTimeout, cancellationToken);
         if (LastOutput(result) is not { } outDir) return ScriptFailure(result);
         // 结果形态（matrix / 单结果）的解析统一在 scripts/Results.ps1，本工具只消费统一的 items。
         if (await ReadResultAsync(outDir, cancellationToken) is not { } read) return ScriptFailure(result);
@@ -153,7 +159,8 @@ public sealed class RenderTools(ScriptRunner runner)
         arguments["Dpi"] = dpis is { Length: > 0 } ? dpis : new[] { 96 };
         arguments["Background"] = background;
         arguments["WindowHost"] = windowHost;
-        var result = await runner.RunAsync(Path.Combine("scripts", "render.ps1"), arguments, TimeSpan.FromMinutes(30), cancellationToken);
+        arguments["LockTimeoutSeconds"] = RenderMatrixLockWaitSeconds;
+        var result = await runner.RunAsync(Path.Combine("scripts", "render.ps1"), arguments, RenderMatrixTimeout, cancellationToken);
         if (LastOutput(result) is not { } outDir) return ScriptFailure(result);
         if (await ReadResultAsync(outDir, cancellationToken) is not { } read) return ScriptFailure(result);
 

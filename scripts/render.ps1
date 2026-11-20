@@ -41,6 +41,9 @@ param(
     [switch]$ContinueOnError,
     [ValidateSet('live', 'settle')][string]$Animations = 'live',
     [int]$TimeoutSeconds = 120,
+    # 等待同一缓存宿主上另一个渲染结束的上限（秒）；省略时按 16 个组合加构建时间估算。
+    # MCP / Stop hook 传入的值必须小于它们自身的超时，否则调用方先被终止，「另一个渲染占用」的结论送不回去。
+    [ValidateRange(1, 86400)][int]$LockTimeoutSeconds,
     [string]$CacheRoot = (Join-Path ([IO.Path]::GetTempPath()) 'agent-render-cache'),
     # 忽略缓存，生成一次性宿主（位于 %TEMP%\agent-render-<GUID>）。
     [switch]$NoCache,
@@ -207,8 +210,9 @@ $null = New-Item -ItemType Directory -Path $CacheRoot -Force
 # 同一缓存宿主同一时间只允许一个渲染，避免并发构建写同一个 out\。
 $mutex = [Threading.Mutex]::new($false, "Local\agent-render-$key")
 try {
-    # 持有者可能在构建并渲染多个组合（每个最长 TimeoutSeconds），等待上限按 16 个组合加构建时间估算。
-    try { if (-not $mutex.WaitOne([TimeSpan]::FromSeconds(($TimeoutSeconds + 60) * 16 + 900))) { throw "等待缓存宿主超时：$workDir（另一个渲染长时间占用）" } }
+    # 持有者可能在构建并渲染多个组合（每个最长 TimeoutSeconds），未指定时等待上限按 16 个组合加构建时间估算。
+    $lockWait = if ($PSBoundParameters.ContainsKey('LockTimeoutSeconds')) { $LockTimeoutSeconds } else { ($TimeoutSeconds + 60) * 16 + 900 }
+    try { if (-not $mutex.WaitOne([TimeSpan]::FromSeconds($lockWait))) { throw "等待缓存宿主超时（$lockWait 秒）：$workDir（另一个渲染长时间占用，请稍后重试）" } }
     catch [Threading.AbandonedMutexException] { } # 上一个持有者异常退出，锁已转交
 
     $stampPath = Join-Path $workDir 'cache.json'

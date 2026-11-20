@@ -77,6 +77,7 @@ $cases = @(
     @{ Name = 'render-cache'; Kind = 'Cache'; OneStep = @{ ViewType = 'SampleViews.OrderView'; DataContextType = 'SampleViews.OrderPreviewVm' } }
     @{ Name = 'render-matrix'; Kind = 'Matrix' }
     @{ Name = 'cache-cleanup'; Kind = 'CacheCleanup' }
+    @{ Name = 'render-lock-timeout'; Kind = 'LockTimeout' }
     @{ Name = 'compare-snapshots'; Kind = 'Compare' }
     @{ Name = 'global-json-isolation'; Kind = 'GlobalJson' }
     @{ Name = 'mcp-server'; Kind = 'Mcp' }
@@ -162,6 +163,36 @@ function Test-CacheCleanup($case) {
         foreach ($dir in $foreign, $hexForeign) {
             if (-not (Test-Path -LiteralPath (Join-Path $dir 'keep.txt'))) { $failures.Add("缓存根目录下的无关目录被删除了：$dir") }
         }
+    }
+    finally { Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue }
+    $failures
+}
+
+# 缓存宿主被占用时，-LockTimeoutSeconds 让 render.ps1 在预算内报出「等待缓存宿主超时」，而不是拖到调用方自己的超时被笼统终止。
+function Test-LockTimeout($case) {
+    $failures = [Collections.Generic.List[string]]::new()
+    $cacheRoot = Join-Path $ArtifactsDir "$($case.Name)-cache"
+    # 与 render.ps1 对内置 WPF 样例（无程序集、未指定 TFM / 位数 / 工厂）算出同一个缓存键。
+    . (Join-Path $root 'scripts\Cache.ps1')
+    $assetDirs = @((Join-Path $root 'assets\wpf'), (Join-Path $root 'assets\shared'))
+    $key = Get-WpfRenderCacheKey $generator $assetDirs '' '' '' @()
+    $signal = Join-Path $ArtifactsDir "$($case.Name)-held"
+    $holdScript = "`$m = [Threading.Mutex]::new(`$false, 'Local\agent-render-$key'); `$null = `$m.WaitOne(); Set-Content -LiteralPath '$signal' -Value 1; Start-Sleep -Seconds 120"
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($holdScript))
+    $holder = Start-Process -FilePath 'pwsh' -PassThru -WindowStyle Hidden -ArgumentList "-NoProfile -EncodedCommand $encoded"
+    try {
+        $deadline = (Get-Date).AddSeconds(30)
+        while (-not (Test-Path -LiteralPath $signal) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
+        if (-not (Test-Path -LiteralPath $signal)) { $failures.Add('持有互斥量的进程未就绪'); return $failures }
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        try {
+            $null = & $oneStep -Stack wpf -Width 320 -Height 200 -CacheRoot $cacheRoot -LockTimeoutSeconds 2 6> $null
+            $failures.Add('缓存宿主被占用时应在 -LockTimeoutSeconds 后报错')
+        }
+        catch {
+            if ($_.Exception.Message -notmatch '等待缓存宿主超时（2 秒）') { $failures.Add("错误信息不符：$($_.Exception.Message)") }
+        }
+        if ($timer.Elapsed.TotalSeconds -gt 30) { $failures.Add("等锁用了 $([int]$timer.Elapsed.TotalSeconds) 秒，没有按 -LockTimeoutSeconds 返回") }
     }
     finally { Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue }
     $failures

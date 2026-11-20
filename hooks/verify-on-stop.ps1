@@ -88,14 +88,25 @@ $render = Join-Path $PSScriptRoot '..\scripts\render.ps1'
 $problems = [Collections.Generic.List[string]]::new()
 $passed = [Collections.Generic.List[string]]::new()
 $builtCommands = [Collections.Generic.HashSet[string]]::new()
+# hooks.json 给 hook 的上限是 900 秒，超过就被客户端直接终止：结论和「只验证一次」的状态都写不下来，下一轮又重跑。
+# 所以给全部视图一个总预算并留出余量；等缓存宿主锁的时间压在剩余预算内，并给锁之后的构建与渲染留出时间。
+$budgetSeconds = 780
+$renderReserveSeconds = 150
+$minLockWaitSeconds = 30
+$clock = [Diagnostics.Stopwatch]::StartNew()
 foreach ($name in $affected | Sort-Object) {
     $view = $config.views[$name]
+    $lockWait = [int]($budgetSeconds - $clock.Elapsed.TotalSeconds - $renderReserveSeconds)
+    if ($lockWait -lt $minLockWaitSeconds) {
+        $problems.Add("[$name] 本轮验证的时间预算（$budgetSeconds 秒）已用完，未渲染；请用 render_view 手动验证这个视图。")
+        continue
+    }
     $buildCommand = @(if ($view.build) { $view.build } elseif ($defaults.build) { $defaults.build })
     # 同一构建命令只执行一次。
     $build = $buildCommand.Count -gt 0 -and $builtCommands.Add(($buildCommand -join ' '))
     try {
         # 只保留管道输出（渲染目录）：警告等流在 -File 模式下会写到 stdout，混进 hook 的 JSON 输出。
-        $outDir = & $render -Config $configPath -Preset $name -Build:$build 3> $null 4> $null 5> $null 6> $null
+        $outDir = & $render -Config $configPath -Preset $name -Build:$build -LockTimeoutSeconds $lockWait 3> $null 4> $null 5> $null 6> $null
         # 结果形态（matrix / 单结果）的解析统一在 Results.ps1。
         . (Join-Path $PSScriptRoot '..\scripts\Results.ps1')
         try { $result = Read-WpfRenderResult "$outDir" }

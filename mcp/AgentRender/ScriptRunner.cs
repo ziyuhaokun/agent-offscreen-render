@@ -22,6 +22,25 @@ public sealed class ScriptRunner(string root)
 
     public sealed record Result(string[] Output, int ExitCode, string? Error, string StandardError);
 
+    // 进程退出后，输出管道可能仍被它留下的子孙进程（dotnet build 的 MSBuild 节点、编译服务器）持有，ReadToEnd 永远读不完。
+    // 结果走 result.json，不依赖 stdout / stderr：排空只给一个短的宽限期，并让客户端取消可以生效。
+    private static readonly TimeSpan DrainGrace = TimeSpan.FromSeconds(10);
+
+    // 两个管道同时排空、共用一个宽限期；返回读到的 stderr。
+    private static async Task<string> DrainAsync(Task<string> stdout, Task<string> stderr, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.WhenAll(stdout, stderr).WaitAsync(DrainGrace, cancellationToken);
+            return stderr.Result;
+        }
+        catch (TimeoutException)
+        {
+            var note = $"（{DrainGrace.TotalSeconds:0} 秒内没有读完输出：可能有残留的子进程仍持有输出管道）";
+            return stderr.IsCompletedSuccessfully ? stderr.Result.TrimEnd() + "\n" + note : note;
+        }
+    }
+
     public async Task<Result> RunAsync(string relativeScript, Dictionary<string, object?> arguments, TimeSpan timeout,
         CancellationToken cancellationToken, bool captureHost = false)
     {
@@ -64,10 +83,9 @@ public sealed class ScriptRunner(string root)
                 try { process.Kill(entireProcessTree: true); }
                 catch (Exception ex) when (ex is InvalidOperationException or AggregateException or System.ComponentModel.Win32Exception) { }
                 if (cancellationToken.IsCancellationRequested) throw;
-                return new Result([], 1, $"脚本超过 {timeout.TotalSeconds:0} 秒未完成，已终止。", await stderr);
+                return new Result([], 1, $"脚本超过 {timeout.TotalSeconds:0} 秒未完成，已终止。", await DrainAsync(stdout, stderr, cancellationToken));
             }
-            await stdout;
-            var errorText = await stderr;
+            var errorText = await DrainAsync(stdout, stderr, cancellationToken);
             if (!File.Exists(resultFile))
                 return new Result([], process.ExitCode == 0 ? 1 : process.ExitCode, "脚本没有写出结果文件。", errorText);
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(resultFile, cancellationToken));

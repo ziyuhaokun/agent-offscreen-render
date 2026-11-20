@@ -57,6 +57,7 @@ WPF 宿主源码只使用 .NET Framework 4.7.2 与 .NET 5+ 共有的 API（不�
 | `-Build` | 关 | 渲染前在配置目录执行预设的 `build` 命令，失败时抛出并附构建日志末尾 |
 | `-CacheRoot` | `%TEMP%\agent-render-cache` | 缓存宿主所在目录；清理只处理本工具创建的缓存目录（16 位十六进制名称），不会删除其中的其他内容 |
 | `-NoCache` | 关 | 生成一次性宿主，不读写缓存 |
+| `-LockTimeoutSeconds` | `(TimeoutSeconds + 60) × 16 + 900` | 同一缓存宿主正被另一个渲染占用时的等待上限（秒），超过即报错「等待缓存宿主超时」。MCP 的 `render_view` / `render_matrix` 分别传 600 / 900，Stop hook 按剩余时间预算传入，都小于调用方自己的超时 |
 | `-RetentionDays` | `7` | 超过该天数未使用的缓存宿主与渲染结果会被自动删除（作为兜底清理；验证完且确认无用的快照输出目录应由 Agent 主动删除） |
 
 缓存键由程序集路径、`-TargetFramework` / `-Platform`、`-FactoryFile` 路径与工具版本（生成器和 `assets/*.cs` 的哈希）组成；视图参数每次重写 `harness.json`。业务程序集所在目录中任一 dll / exe 的大小或修改时间变化时重新构建，否则跳过构建；若程序集的 TFM 或位数也变了（如 4.6.1 升级到 4.8），先重新生成宿主工程。同一缓存宿主用系统互斥量串行化，多个代理并发调用也不会同时构建。

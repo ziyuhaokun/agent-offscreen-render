@@ -2,6 +2,17 @@
 
 版本号记录在 `VERSION`，并与 `.claude-plugin/plugin.json`、`.codex-plugin/plugin.json`、`plugin.json`、`mcp/AgentRender/AgentRender.csproj` 保持一致（`tests/validate-plugins.ps1` 检查）。渲染结果的 `manifest.json` / `summary.json` 记录生成它的 `toolVersion`。
 
+## 未发布
+
+### 超时对齐
+- `render.ps1` 新增 `-LockTimeoutSeconds`：等待被占用的缓存宿主的上限。此前固定为 3780 秒，远超 MCP 工具（20 / 30 分钟）与 Stop hook（900 秒）的超时，调用方先被终止，代理只看到笼统的「超时」。
+- MCP：`render_view` / `render_matrix` 的等锁上限分别为 600 / 900 秒。
+- MCP：脚本进程退出后，stdout / stderr 最多再等 10 秒且响应客户端取消；此前残留的 MSBuild 节点持有输出管道时，工具调用可能永久挂住。
+- Stop hook：全部视图共用 780 秒预算，等锁时间压在剩余预算内；预算不足的视图报「未渲染」，不再被客户端终止后每轮重跑。
+
+### 检查
+- 新增用例 `render-lock-timeout`。
+
 ## 2.1.0 – 2026-11-02
 
 ### Avalonia 12 支持（11 / 12 双档）
