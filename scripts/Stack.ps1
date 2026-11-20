@@ -1,6 +1,7 @@
 #requires -Version 7.0
 # 技术栈判定与 Avalonia 宿主推断的单一 module。
-# 判定：显式 -Stack 优先；未指定时按程序集的 AssemblyRef 识别 Avalonia / WPF，两者同时出现则报错。
+# 判定：显式 -Stack 优先；未指定时按程序集的 AssemblyRef 识别 Avalonia / WPF / WinForms，
+# Avalonia 与 WPF 同时出现则报错（WPF 程序常顺带引用 WinForms，保持旧行为）。
 # Avalonia 宿主：TFM 跟随业务程序集（不低于 net8.0）；包版本按业务程序集引用的主版本选基线，
 # 同一主版本内跟随更高的引用版本。
 . (Join-Path $PSScriptRoot 'HostFrameworks.ps1')
@@ -35,21 +36,25 @@ function Get-AssemblyReferences([string]$Path) {
 function Get-AgentRenderStack([string[]]$AssemblyPath, [string]$RequestedStack) {
     if ($RequestedStack) {
         $requested = $RequestedStack.ToLowerInvariant()
-        if ($requested -notin 'wpf', 'avalonia') { throw "未知的技术栈 $RequestedStack：只支持 wpf、avalonia。" }
+        if ($requested -notin 'wpf', 'avalonia', 'winforms') { throw "未知的技术栈 $RequestedStack：只支持 wpf、avalonia、winforms。" }
         return $requested
     }
     $avalonia = [Collections.Generic.List[string]]::new()
     $wpf = [Collections.Generic.List[string]]::new()
+    $winforms = [Collections.Generic.List[string]]::new()
     foreach ($path in $AssemblyPath) {
         $names = @(Get-AssemblyReferences $path | ForEach-Object Name)
         if ($names | Where-Object { $_ -match '^Avalonia(\.|$)' }) { $avalonia.Add($path) }
         # 只看 PresentationFramework：WindowsBase 等被很多非 UI 库引用，不能作为 WPF 的依据。
         if ($names -contains 'PresentationFramework') { $wpf.Add($path) }
+        # 同理只看 System.Windows.Forms：WPF 程序也可能引用它，有 PresentationFramework 时仍按 WPF 处理。
+        if ($names -contains 'System.Windows.Forms') { $winforms.Add($path) }
     }
     if ($avalonia.Count -gt 0 -and $wpf.Count -gt 0) {
         throw "-AssemblyPath 同时引用了 Avalonia（$($avalonia -join '、')）与 WPF（$($wpf -join '、')），无法判定技术栈：请分别渲染，或用 -Stack 显式指定。"
     }
     if ($avalonia.Count -gt 0) { return 'avalonia' }
+    if ($wpf.Count -eq 0 -and $winforms.Count -gt 0) { return 'winforms' }
     'wpf'
 }
 

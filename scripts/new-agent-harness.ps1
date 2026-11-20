@@ -5,7 +5,7 @@ param(
     # 省略时按 -AssemblyPath 的 TargetFrameworkAttribute 推断，没有业务程序集时为 net8.0-windows。
     [ValidatePattern('^(net472|net48|net481|net([5-9]|[1-9][0-9])\.0(-windows([0-9]+(\.[0-9]+){1,3})?)?)$')]
     [string]$TargetFramework,
-    [ValidateSet('wpf', 'avalonia')][string]$Stack = 'wpf',
+    [ValidateSet('wpf', 'avalonia', 'winforms')][string]$Stack = 'wpf',
     # 省略时按 -AssemblyPath 的 PE 头推断：存在仅 x86 / x64 的程序集就跟随它，否则 AnyCPU。
     [ValidateSet('AnyCPU', 'x86', 'x64', 'ARM64')]
     [string]$Platform,
@@ -30,8 +30,11 @@ param(
     [switch]$InferOnly
 )
 $ErrorActionPreference = 'Stop'
-if (-not $IsWindows -and $Stack -eq 'wpf') { throw 'WPF 渲染需要 Windows。' }
+if (-not $IsWindows -and $Stack -in 'wpf', 'winforms') { throw 'WPF / WinForms 渲染需要 Windows。' }
 if ($Stack -eq 'avalonia' -and $TargetFramework -and $TargetFramework -like 'net*-windows*') { throw 'Avalonia 宿主使用不带 -windows 的 TFM，例如 net8.0。' }
+# WinForms 宿主只支持 layout-only：松散 XAML 与资源字典根本不存在对应概念，在生成工程前就拒绝。
+if ($Stack -eq 'winforms' -and $Xaml) { throw 'WinForms 宿主不支持松散 XAML：请用 -ViewType 指定视图类型。' }
+if ($Stack -eq 'winforms' -and @($ResourceDictionary).Count -gt 0) { throw 'WinForms 宿主不支持资源字典，请去掉 -ResourceDictionary。' }
 if ($ViewType -and $Xaml) { throw '-ViewType 与 -Xaml 只能二选一。' }
 if ($DataContextType -and $DataContextFactory) { throw '-DataContextType 与 -DataContextFactory 只能二选一。' }
 if (($DataContextType -or $DataContextFactory) -and -not ($ViewType -or $Xaml)) { throw '-DataContextType / -DataContextFactory 需要配合 -ViewType 或 -Xaml。' }
@@ -47,7 +50,7 @@ $ResourceDictionary = @($ResourceDictionary | ForEach-Object {
         else { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($_) }
     })
 
-# WPF 宿主需要 WindowsDesktop TFM 推断；Avalonia 宿主使用普通 .NET TFM，默认 net8.0。
+# WPF / WinForms 宿主需要 WindowsDesktop TFM 推断；Avalonia 宿主使用普通 .NET TFM，默认 net8.0。
 $avaloniaVersion = $null
 if ($Stack -eq 'avalonia') {
     # TFM、位数与 Avalonia 包版本跟随业务程序集（规则在 Stack.ps1）。
@@ -63,7 +66,7 @@ else {
     $TargetFramework = $inferred.TargetFramework
     $Platform = $inferred.Platform
 }
-$isFramework = $Stack -eq 'wpf' -and $TargetFramework -like 'net4*'
+$isFramework = $Stack -in 'wpf', 'winforms' -and $TargetFramework -like 'net4*'
 # 生成器仍需要每个程序集的解析路径（csproj 引用与 harness.json 的 assemblies 列表）。
 $targets = foreach ($assembly in $AssemblyPath) {
     $resolved = (Resolve-Path -LiteralPath $assembly).ProviderPath
@@ -95,7 +98,7 @@ $project = @"
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>$TargetFramework</TargetFramework>
-    $(if (-not $isAvalonia) { '<UseWPF>true</UseWPF>' })
+    $(if ($Stack -eq 'winforms') { '<UseWindowsForms>true</UseWindowsForms>' } elseif (-not $isAvalonia) { '<UseWPF>true</UseWPF>' })
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
@@ -104,7 +107,7 @@ $project = @"
     <UseAppHost>$(if ($isFramework -or $Platform -ne 'AnyCPU') { 'true' } else { 'false' })</UseAppHost>
     <RollForward>Major</RollForward>
     <EnableDefaultPageItems>false</EnableDefaultPageItems>
-    <DefaultItemExcludes>`$(DefaultItemExcludes);out/**;render-*/**</DefaultItemExcludes>
+    <DefaultItemExcludes>`$(DefaultItemExcludes);out/**;render-*/**;matrix-*/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
 $($references -join [Environment]::NewLine)$(if ($isFramework) { [Environment]::NewLine + '    <Reference Include="System.Runtime.Serialization" />' })
@@ -124,14 +127,31 @@ foreach ($file in 'Directory.Build.props', 'Directory.Build.targets') {
     '<Project><PropertyGroup><ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally></PropertyGroup></Project>', $utf8)
 # 空的 global.json 截断 SDK 版本查找：上层仓库锁定的 SDK（可能未安装或过旧）不影响宿主构建，使用本机最新 SDK。
 [IO.File]::WriteAllText((Join-Path $WorkDir 'global.json'), '{}', $utf8)
+# .NET Framework 宿主必须能加载业务程序集，而 .NET Framework 会拒组「来自网络位置」的程序集（如业务仓库在网络盘上），
+# 报 0x80131515「Operation is not supported」。本工具的职责就是加载用户自己的程序集，因此显式打开 loadFromRemoteSources。
+# 生成的 RenderHarness.exe.config 会带上这段；.NET 宿主忽略该元素。
+if ($isFramework) {
+    [IO.File]::WriteAllText((Join-Path $WorkDir 'App.config'), @"
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <startup>
+    <supportedRuntime version="v4.0" />
+  </startup>
+  <runtime>
+    <!-- 业务程序集可能位于网络盘或被标记为「来自网络」的目录，不打开时 .NET Framework 直接拒组加载。 -->
+    <loadFromRemoteSources enabled="true" />
+  </runtime>
+</configuration>
+"@, $utf8)
+}
 $configPath = Join-Path $WorkDir 'harness.json'
 . (Join-Path $PSScriptRoot 'HarnessConfig.ps1')
 Write-HarnessConfig -Path $configPath -Stack $Stack -ViewType $ViewType -Xaml $Xaml -DataContextType $DataContextType `
     -DataContextFactory $DataContextFactory -ResourceDictionary $ResourceDictionary -AssemblyPath @($targets | ForEach-Object { $_.Path }) `
     -Steps $normalizedSteps -ContinueOnError $ContinueOnError -Animations $Animations
 # 按字面路径复制：安装目录含 [ ] 时 -Path 会被当作通配符。
-# 技术栈宿主与共享 JSON 写入器分目录，避免把 WPF 引用带进 Avalonia 工程。
-$hostDir = if ($Stack -eq 'avalonia') { '..\assets\avalonia' } else { '..\assets\wpf' }
+# 技术栈宿主与共享 JSON 写入器分目录，避免把 WPF 引用带进 Avalonia / WinForms 工程。
+$hostDir = switch ($Stack) { 'avalonia' { '..\assets\avalonia' } 'winforms' { '..\assets\winforms' } default { '..\assets\wpf' } }
 foreach ($dir in @($hostDir, '..\assets\shared')) {
     Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot $dir) -Filter '*.cs' | Copy-Item -Destination $WorkDir
 }

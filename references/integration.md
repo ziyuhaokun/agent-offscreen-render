@@ -1,4 +1,4 @@
-# 接入真实 WPF / Avalonia 界面
+# 接入真实 WPF / Avalonia / WinForms 界面
 
 ## 业务项目接入：agent-render.json（兼容旧 wpf-render.json）
 
@@ -10,7 +10,7 @@
 | `blockOnLayoutIssues` | 顶层 | `true` 时布局问题也会阻止结束；默认只有渲染失败与绑定错误会阻止 |
 | `defaults` | 顶层 | 各视图共用的设置，视图中的同名字段覆盖它 |
 | `views.<名称>` | 顶层 | 一个视图预设 |
-| `stack` | 预设 | `wpf` / `avalonia`；省略时按程序集引用自动识别 |
+| `stack` | 预设 | `wpf` / `avalonia` / `winforms`；省略时按程序集引用自动识别 |
 | `assemblyPaths`、`xaml`、`factoryFile` | 预设 | 相对路径相对于配置文件所在目录 |
 | `viewType`、`dataContextType`、`dataContextFactory` | 预设 | 同 `render.ps1` 的同名参数；`dataContextFactory` 为无参静态方法 `Namespace.Type.Method` |
 | `resourceDictionaries` | 预设 | pack URI 原样使用，其余相对路径相对于配置目录；`{theme}` 替换为主题 |
@@ -38,7 +38,7 @@
 
 Avalonia 本期只支持初始截图、主题 / 尺寸 / DPI、绑定错误、布局检查、元素截图与快照对比；`windowHost` 和交互步骤（`steps`）会明确失败。资源使用 `avares://` 或文件路径，不接受 WPF 的 `pack://`。
 
-本工具的工程独立于业务仓库，只依赖 WPF 或 Avalonia 与 .NET。使用 Windows + PowerShell 7。WPF 宿主 TFM：`net472`、`net48`、`net481` 与 `net5.0-windows` … `net10.0-windows`（可带平台版本）；Avalonia 宿主为不带 `-windows` 的 net8.0 及以上，要求业务程序集引用 Avalonia 11.x 或 12.x，不支持 .NET Framework 程序集。确认 `dotnet --list-sdks` 能构建该 TFM；WPF 的 .NET 宿主还需 `dotnet --list-runtimes` 中有对应的 WindowsDesktop Runtime，Avalonia 宿主只需要 .NET 8+ 运行时（Skia 随 NuGet 包提供），.NET Framework 宿主需本机已装对应版本的 .NET Framework，并有 Developer Pack 或 NuGet 访问来获取引用程序集。
+本工具的工程独立于业务仓库，只依赖 WPF、Avalonia 或 WinForms 与 .NET。使用 Windows + PowerShell 7。WPF 与 WinForms 宿主 TFM：`net472`、`net48`、`net481` 与 `net5.0-windows` … `net10.0-windows`（可带平台版本）；Avalonia 宿主为不带 `-windows` 的 net8.0 及以上，要求业务程序集引用 Avalonia 11.x 或 12.x，不支持 .NET Framework 程序集。确认 `dotnet --list-sdks` 能构建该 TFM；WPF / WinForms 的 .NET 宿主还需 `dotnet --list-runtimes` 中有对应的 WindowsDesktop Runtime，Avalonia 宿主只需要 .NET 8+ 运行时（Skia 随 NuGet 包提供），.NET Framework 宿主需本机已装对应版本的 .NET Framework，并有 Developer Pack 或 NuGet 访问来获取引用程序集。
 
 生成时引用已经构建的程序集：
 

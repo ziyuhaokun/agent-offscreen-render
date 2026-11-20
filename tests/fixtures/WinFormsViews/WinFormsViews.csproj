@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 测试用 WinForms 业务程序集：同一份源码分别构建 net48 与 net8.0-windows，覆盖两类宿主。
+       视图全部在执行期间用代码创建，不使用 .resx / Designer 文件，只用两个 TFM 共有的 API。 -->
+  <PropertyGroup>
+    <TargetFrameworks>net48;net8.0-windows</TargetFrameworks>
+    <UseWindowsForms>true</UseWindowsForms>
+    <OutputType>Library</OutputType>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+</Project>

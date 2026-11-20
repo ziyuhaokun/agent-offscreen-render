@@ -43,6 +43,10 @@ function ConvertTo-HarnessSteps([string]$Steps, [string]$FactoryFile, [string]$S
     # 错误左移：在生成宿主之前就检查工厂是否实现了它，省得用户等完整构建完才在执行时发现。
     # 判定与运行时反射同一约定、同一来源（同一份工厂文件）：内容含 RunStepAsync 即视为已实现。
     if ($list | Where-Object { $_.custom }) {
+        # WinForms / Avalonia 宿主都不支持交互步骤（运行时由宿主明确拒绝），不要在 WPF 专用提示上把人引向死路。
+        if ($Stack -ne 'wpf') {
+            throw "$Stack 宿主不支持交互步骤：custom 步骤（以及任何 steps）只在 WPF 宿主上可用，请去掉 -Steps。"
+        }
         $factorySource = if ($FactoryFile) { $FactoryFile } else { Join-Path $PSScriptRoot "..\assets\$Stack\ViewFactory.cs" }
         if (-not (Test-Path -LiteralPath $factorySource)) { throw "找不到工厂文件：$factorySource" }
         $factoryText = Get-Content -LiteralPath $factorySource -Raw

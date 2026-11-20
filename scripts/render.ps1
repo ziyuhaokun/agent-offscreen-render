@@ -13,7 +13,7 @@
 [CmdletBinding()]
 param(
     [string[]]$AssemblyPath = @(),
-    [ValidateSet('wpf', 'avalonia')][string]$Stack,
+    [ValidateSet('wpf', 'avalonia', 'winforms')][string]$Stack,
     [string]$ViewType,
     [string]$Xaml,
     [string]$DataContextType,
@@ -51,7 +51,7 @@ param(
     [ValidateRange(1, 365)][int]$RetentionDays = 7
 )
 $ErrorActionPreference = 'Stop'
-if (-not $IsWindows) { throw 'WPF 渲染需要 Windows。' }
+if (-not $IsWindows) { throw 'agent-render 的 WPF / WinForms 宿主需要 Windows。' }
 # 相对路径按 PowerShell 当前位置解析：.NET 文件 API 使用进程工作目录，Set-Location 不会改变它。
 $CacheRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($CacheRoot)
 
@@ -118,6 +118,9 @@ $Stack = Get-AgentRenderStack $assemblies $Stack
 if ($Stack -eq 'avalonia' -and @($ResourceDictionary | Where-Object { $_ -match '^pack:' }).Count -gt 0) {
     throw 'Avalonia 不支持 WPF pack:// 资源字典，请改用 avares:// 或文件路径。'
 }
+# WinForms 宿主只支持 layout-only：松散 XAML 与资源字典根本不存在对应概念，在生成工程前就拒绝。
+if ($Stack -eq 'winforms' -and $Xaml) { throw 'WinForms 宿主不支持松散 XAML：请用 -ViewType 指定视图类型。' }
+if ($Stack -eq 'winforms' -and @($ResourceDictionary).Count -gt 0) { throw 'WinForms 宿主不支持资源字典，请去掉 -ResourceDictionary。' }
 # 资源字典：pack URI 与绝对路径保持原样；存在的相对路径按当前位置解析（{theme} 按 light 检查）。
 $ResourceDictionary = @($ResourceDictionary | ForEach-Object {
         if ([IO.Path]::IsPathRooted($_) -or $_ -like '*;component/*' -or $_ -match '^(pack|avares|file|https?)://' -or

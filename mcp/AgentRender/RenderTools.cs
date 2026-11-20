@@ -21,7 +21,7 @@ public sealed class RenderTools(ScriptRunner runner)
 
     // 渲染会构建项目（build: true 时执行预设命令）、运行业务代码并写入文件，不能标为只读，以免客户端据此自动批准。
     [McpServerTool(Name = "render_view", Title = "Render agent view", ReadOnly = false, Destructive = false, OpenWorld = false)]
-    [Description("在独立临时进程中把真实 WPF / Avalonia Control 或松散 XAML / AXAML 离屏渲染成 PNG（需要 Windows）。"
+    [Description("在独立临时进程中把真实 WPF / Avalonia / WinForms Control 或松散 XAML / AXAML 离屏渲染成 PNG（需要 Windows）。"
         + "返回 JSON 摘要（status、bindingIssues 单行绑定结论、layoutIssues 布局问题、尺寸、outDir）和截图。"
         + "业务项目有 agent-render.json（兼容旧 wpf-render.json）时优先用 config + preset（先用 list_views 查看可用视图），build=true 会先构建业务项目；"
         + "否则传 assemblyPaths + viewType / xaml。都不传时渲染内置样例。同一组程序集第二次起跳过宿主构建。"
@@ -31,7 +31,7 @@ public sealed class RenderTools(ScriptRunner runner)
         [Description("agent-render.json（兼容旧 wpf-render.json）中的视图名；其余参数省略时取预设值，显式传入时覆盖")] string? preset = null,
         [Description("渲染前在配置目录执行预设的 build 命令（修改了业务代码时使用）")] bool build = false,
         [Description("业务程序集（.dll / .NET Framework .exe）绝对路径；TFM 与技术栈自动推断")] string[]? assemblyPaths = null,
-        [Description("技术栈：wpf 或 avalonia；省略时按程序集引用自动推断")] string? stack = null,
+        [Description("技术栈：wpf / avalonia / winforms；省略时按程序集引用自动推断；winforms 不支持 windowHost 与 steps（仍返回截图、绑定与布局检查）")] string? stack = null,
         [Description("视图类型全名，如 MyUi.Views.OrderView；需无参构造。与 xaml 二选一")] string? viewType = null,
         [Description("松散 XAML 文件路径（无 x:Class / 事件），与 viewType 二选一")] string? xaml = null,
         [Description("DataContext 类型全名，需无参构造")] string? dataContextType = null,
@@ -136,7 +136,7 @@ public sealed class RenderTools(ScriptRunner runner)
     [Description("一次渲染多个主题 × 尺寸 × DPI 组合（需要 Windows），只构建一次。返回 matrix JSON（每个组合的状态、绑定与布局问题、截图路径）和拼好的总览图。")]
     public async Task<CallToolResult> RenderMatrix(
         [Description("业务程序集绝对路径")] string[]? assemblyPaths = null,
-        [Description("技术栈：wpf 或 avalonia；省略时按程序集引用自动推断")] string? stack = null,
+        [Description("技术栈：wpf / avalonia / winforms；省略时按程序集引用自动推断；winforms 不支持 windowHost 与 steps（仍返回截图、绑定与布局检查）")] string? stack = null,
         [Description("视图类型全名，与 xaml 二选一")] string? viewType = null,
         [Description("松散 XAML 文件路径")] string? xaml = null,
         [Description("DataContext 类型全名")] string? dataContextType = null,

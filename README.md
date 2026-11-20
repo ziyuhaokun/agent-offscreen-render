@@ -4,17 +4,18 @@
 
 # Agent Render
 
-**给 AI 一双看 WPF / Avalonia 的眼睛**<br>
-*Give your agent eyes on WPF and Avalonia.*
+**给 AI 一双看 WPF / Avalonia / WinForms 的眼睛**<br>
+*Give your agent eyes on WPF, Avalonia and WinForms.*
 
 [![CI](https://github.com/ayueryi/wpf-offscreen-render/actions/workflows/ci.yml/badge.svg)](https://github.com/ayueryi/wpf-offscreen-render/actions/workflows/ci.yml)
 ![version](https://img.shields.io/badge/version-2.1.1-blue)
 ![WPF](https://img.shields.io/badge/WPF-.NET%20Framework%204.7.2%20%E2%80%93%20.NET%2010-512BD4)
 ![Avalonia](https://img.shields.io/badge/Avalonia-11.x%20%2F%2012.x%20%2F%20.NET%208%2B-8B44AC)
+![WinForms](https://img.shields.io/badge/WinForms-.NET%20Framework%204.7.2%20%E2%80%93%20.NET%2010-0E7A9F)
 
-让 AI 编码代理（Antigravity、Codex、Claude Code 等）**改完就能看见**自己写出来的界面：在独立的临时进程里把真实的 WPF `UserControl` / `Page` / `Window` 或 Avalonia `Control` / 松散 AXAML 渲染成 PNG，并给出解析好的绑定错误和布局问题。
+让 AI 编码代理（Antigravity、Codex、Claude Code 等）**改完就能看见**自己写出来的界面：在独立的临时进程里把真实的 WPF `UserControl` / `Page` / `Window`、Avalonia `Control` / 松散 AXAML，或 WinForms `UserControl` / `Form` 渲染成 PNG，并给出解析好的绑定错误和布局问题。
 
-*Render real WPF / Avalonia views offscreen to PNG, with parsed binding errors and layout checks — packaged as an Antigravity / Claude Code / Codex plugin with an MCP server.*
+*Render real WPF / Avalonia / WinForms views offscreen to PNG, with parsed binding errors and layout checks — packaged as an Antigravity / Claude Code / Codex plugin with an MCP server.*
 
 | light | dark |
 | --- | --- |
@@ -29,10 +30,10 @@
 - **为代理设计**：内置 MCP 服务器，作为 Antigravity / Claude Code / Codex 插件一条命令安装；代理调用一次即可拿到截图和 JSON 摘要。
 - **覆盖常见验证场景**：多主题 × 尺寸 × DPI 一次渲染并拼成总览图，修改前后像素对比，截取单个元素。
 - **交互步骤与动画取帧**：按顺序执行展开、输入、点击提交、切换 VisualState、执行命令等动作，每步截图并检查绑定与布局；动画按时刻（如 0 / 150 / 300 ms）取帧，结果可复现。
-- **兼容面广**：WPF 支持 .NET Framework 4.7.2 / 4.8 / 4.8.1 与 .NET 5 – 10，Avalonia 支持 11.x / 12.x（.NET 8+），按业务程序集自动识别技术栈、宿主框架与位数（含 x86）。
+- **兼容面广**：WPF 支持 .NET Framework 4.7.2 / 4.8 / 4.8.1 与 .NET 5 – 10，Avalonia 支持 11.x / 12.x（.NET 8+），WinForms 同样支持 .NET Framework 4.7.2 – 4.8.1 与 .NET 5 – 10，按业务程序集自动识别技术栈、宿主框架与位数（含 x86）。
 - **可以强制执行**：业务项目登记视图后，代理结束本轮回答前会自动渲染改动涉及的页面，有绑定错误时让代理继续修复。
 
-**适用范围**：只能在 **Windows** 上渲染（云端 Linux 容器中的代理会话用不了）。快照不包含 `Popup` / `ToolTip`、`HwndHost`、WebView 等原生内容，也不能证明性能；交互只覆盖能用代码确定性驱动的部分（见[交互步骤](references/steps.md#限制)，默认主题的鼠标悬停 / 按下样式截不到，拖拽、手势等真实输入不在范围内）。Avalonia 本期只支持初始截图、主题 / 尺寸 / DPI、绑定与布局检查、元素截图和快照对比，不支持 `windowHost` 与交互步骤，资源使用 `avares://`。不适用于 WinUI、UWP、MAUI。
+**适用范围**：只能在 **Windows** 上渲染（云端 Linux 容器中的代理会话用不了）。快照不包含 `Popup` / `ToolTip`、`HwndHost`、WebView 等原生内容，也不能证明性能；交互只覆盖能用代码确定性驱动的部分（见[交互步骤](references/steps.md#限制)，默认主题的鼠标悬停 / 按下样式截不到，拖拽、手势等真实输入不在范围内）。Avalonia 本期只支持初始截图、主题 / 尺寸 / DPI、绑定与布局检查、元素截图和快照对比，不支持 `windowHost` 与交互步骤，资源使用 `avares://`。WinForms 同样只支持初始截图、尺寸 / DPI、绑定与布局检查、元素截图和快照对比：只支持 `light` 主题，不支持 `windowHost`、交互步骤、松散 XAML 与资源字典；`DrawToBitmap` 画不出 `RichTextBox`、`WebBrowser`、ActiveX 等原生内容。不适用于 WinUI、UWP、MAUI。
 
 ## 目录
 
@@ -57,7 +58,7 @@
 <summary><b>Claude Code：安装</b></summary>
 
 ```text
-请帮我安装 agent-render 插件（WPF / Avalonia 离屏渲染，仓库 ayueryi/wpf-offscreen-render）：
+请帮我安装 agent-render 插件（WPF / Avalonia / WinForms 离屏渲染，仓库 ayueryi/wpf-offscreen-render）：
 1. 确认本机是 Windows，`pwsh -v` 为 7.x，`dotnet --list-sdks` 中有 8.0 或更高版本的 SDK；不满足时停下来告诉我缺什么，不要自行安装。
 2. 运行 `claude plugin marketplace add ayueryi/wpf-offscreen-render`（提示已存在时跳过），再运行 `claude plugin install agent-render@agent-render`。
 3. 从 `claude plugin list --json` 中取该插件的 installPath，运行 `pwsh -NoProfile -ExecutionPolicy Bypass -File "<installPath>\mcp\start.ps1" -BuildOnly` 预编译 MCP 服务器（首次需要访问 NuGet，可能要一分钟左右）。
@@ -83,7 +84,7 @@
 <summary><b>Codex：安装</b></summary>
 
 ```text
-请帮我安装 agent-render 插件（WPF / Avalonia 离屏渲染，仓库 ayueryi/wpf-offscreen-render）：
+请帮我安装 agent-render 插件（WPF / Avalonia / WinForms 离屏渲染，仓库 ayueryi/wpf-offscreen-render）：
 1. 确认本机是 Windows，`pwsh -v` 为 7.x，`dotnet --list-sdks` 中有 8.0 或更高版本的 SDK；不满足时停下来告诉我缺什么，不要自行安装。
 2. 运行 `codex plugin marketplace add ayueryi/wpf-offscreen-render`（提示已存在时跳过），再运行 `codex plugin add agent-render@agent-render`，输出中的 “Installed plugin root” 就是插件目录。这些命令需要联网，被沙箱拦截时请求我批准。
 3. 运行 `pwsh -NoProfile -ExecutionPolicy Bypass -File "<插件目录>\mcp\start.ps1" -BuildOnly` 预编译 MCP 服务器（首次需要访问 NuGet，可能要一分钟左右）。
@@ -109,7 +110,7 @@
 <summary><b>其他代理：克隆安装与更新</b></summary>
 
 ```text
-请帮我接入 agent-render（WPF / Avalonia 离屏渲染工具，仓库 https://github.com/ayueryi/wpf-offscreen-render）：
+请帮我接入 agent-render（WPF / Avalonia / WinForms 离屏渲染工具，仓库 https://github.com/ayueryi/wpf-offscreen-render）：
 1. 确认本机是 Windows，`pwsh -v` 为 7.x，`dotnet --list-sdks` 中有 8.0 或更高版本的 SDK；不满足时停下来告诉我。
 2. 若 `%USERPROFILE%\tools\agent-render` 不存在，把仓库克隆到那里；已存在时在该目录运行 `git pull --ff-only` 更新（有本地改动时停下来问我）。
 3. 在你的 MCP 配置中登记服务器 agent-render：command 为 `pwsh`，args 为 `-NoProfile -NonInteractive -ExecutionPolicy Bypass -File <仓库目录>\mcp\start.ps1`；你支持 skills 时，优先把整个插件目录安装或链接到代理可访问的位置。若只能单独复制 `skills\agent-render`，在代理环境中设置 `AGENT_RENDER_ROOT=<仓库目录>`，不要按 SKILL.md 的目录层级猜路径。
@@ -290,9 +291,9 @@ $out = .\scripts\render.ps1 -AssemblyPath $avaUi -ViewType MyUi.Views.OrderView 
 | --- | --- |
 | 系统与 Shell | Windows；PowerShell 7+。`-WindowHost` 模式还需要交互式桌面会话 |
 | .NET SDK | 能构建目标框架的 SDK，例如 .NET 8 / 9 / 10 SDK（也能构建 .NET Framework 目标） |
-| 运行时 | WPF 的 .NET 宿主需要对应版本的 `Microsoft.WindowsDesktop.App`；.NET Framework 宿主需要对应版本的 .NET Framework（Windows 10 / 11 自带 4.8 / 4.8.1）；Avalonia 宿主需要 .NET 8+ 运行时（自带 Skia，无 WindowsDesktop 依赖） |
+| 运行时 | WPF / WinForms 的 .NET 宿主需要对应版本的 `Microsoft.WindowsDesktop.App`；.NET Framework 宿主需要对应版本的 .NET Framework（Windows 10 / 11 自带 4.8 / 4.8.1）；Avalonia 宿主需要 .NET 8+ 运行时（自带 Skia，无 WindowsDesktop 依赖） |
 | .NET Framework 引用程序集 | 已安装 Developer Pack，或可以访问 NuGet（SDK 会自动还原） |
-| 目标程序 | WPF：.NET Framework 4.7.2 / 4.8 / 4.8.1 或 .NET 5 – 10（更早的 .NET Framework 程序集用 net472 宿主）；Avalonia：11.x / 12.x（.NET 8+）。不支持 .NET Core 3.x |
+| 目标程序 | WPF：.NET Framework 4.7.2 / 4.8 / 4.8.1 或 .NET 5 – 10（更早的 .NET Framework 程序集用 net472 宿主）；Avalonia：11.x / 12.x（.NET 8+）；WinForms：与 WPF 同一套推断规则，.NET Framework 4.7.2 – 4.8.1 或 .NET 5 – 10（更早的 .NET Framework 程序集用 net472 宿主）。不支持 .NET Core 3.x |
 
 自查：`dotnet --list-sdks`、`dotnet --list-runtimes | Select-String WindowsDesktop`、`$PSVersionTable.PSVersion`。
 
@@ -305,8 +306,8 @@ flowchart LR
     B --> C["scripts/render.ps1<br/>预设 · 缓存 · 多组合"]
     C -->|生成或复用| D["临时宿主工程<br/>%TEMP%"]
     D -->|独立 STA 进程| E["加载业务程序集<br/>创建视图 · 布局"]
-    E --> F["RenderTargetBitmap → PNG"]
-    E --> G["绑定监听 · 布局检查"]
+    E --> F["WPF / Avalonia：RenderTargetBitmap<br/>WinForms：DrawToBitmap → PNG"]
+    E --> G["绑定检查 · 布局检查"]
     F --> H["summary.json<br/>截图 · 结论"]
     G --> H
     H --> A
@@ -314,10 +315,10 @@ flowchart LR
 
 每次渲染都在一个新的临时进程中完成：
 
-1. 按业务程序集推断目标框架与位数，生成（或复用缓存的）宿主工程。
-2. 在 STA 线程中创建 `Application`，挂上绑定监听，并用一条故意写错的绑定自检，确认监听确实有效。
-3. 创建视图（类型名、松散 XAML、静态工厂或自定义 `ViewFactory.cs`），按模式完成布局：默认直接 Measure / Arrange；`-WindowHost` 时放进屏幕外、不激活、不显示在任务栏的窗口。
-4. 等待视图就绪后用 `RenderTargetBitmap` 输出 PNG，遍历视觉树做布局检查，汇总成 `summary.json`。
+1. 按业务程序集推断技术栈、目标框架与位数，生成（或复用缓存的）宿主工程。
+2. 在 STA 线程中创建 `Application`，挂上绑定检查并自检，确认检查确实有效（WPF / Avalonia 挂绑定跟踪监听；WinForms 用一条故意写错的绑定跑同一套预检）。
+3. 创建视图（类型名、松散 XAML / AXAML、静态工厂或自定义 `ViewFactory.cs`），按模式完成布局：WPF 默认直接 Measure / Arrange，`-WindowHost` 时放进屏幕外窗口；Avalonia 挂到无头窗口；WinForms 放进**从不显示**的容器 `Form` 并强制创建句柄（触发 `Load`、不抢焦点）。
+4. 等待视图就绪后出图（WPF / Avalonia 用 `RenderTargetBitmap`，WinForms 用 `Control.DrawToBitmap`），遍历视觉树做布局检查，汇总成 `summary.json`。
 
 <details>
 <summary>宿主内部细节</summary>
@@ -326,6 +327,7 @@ flowchart LR
 - 绑定监听：`PresentationTraceSources.DataBindingSource` 级别设为 `Warning` 并挂自定义 `TraceListener`；自检探针绑定到唯一标记路径 `WpfRenderSelfCheck_<GUID>`，只过滤这一条，其余告警全部记录。
 - `window-host` 模式：窗口位于 `(-20000, -20000)`，`ShowActivated=false`、`ShowInTaskbar=false`、`WindowStyle=None`、`ResizeMode=NoResize`，截取 `Window.Content`。
 - `ViewFactory.WaitUntilReadyAsync` 返回后再执行一轮 `ContextIdle` + `UpdateLayout`，然后渲染 `ceil(W×DPI/96) × ceil(H×DPI/96)` 像素的位图。
+- WinForms 宿主：视图 `Dock=Fill` 进隐藏容器，反射调用内部 `Control.CreateControl(true)` 创建全部句柄；布局仍按 96 DPI（进程 DPI 不感知），DPI 只决定位图缩放。绑定分两步：挂上之前逐个预检、摘掉成员写错的绑定并计为绑定问题；挂上之后重读每个绑定登记格式化 / 转换失败。
 - 产物：`snapshot.png`、`manifest.json`、`layout.json`、`binding-errors.txt` / `.json`、`summary.json`，以及构建与渲染日志。
 - 执行器只对自己启动的渲染子进程设置超时（默认 120 秒），只关闭自己创建的窗口。
 
@@ -369,6 +371,7 @@ CI 在 Windows 上运行全部端到端用例（含 MCP），在 Linux 上运行
 | DataContext 工厂与预设 | `factory-method`、`factory-file`、`preset` |
 | MCP 服务器与 Stop hook | `mcp-server`、`stop-hook` |
 | 框架 / 位数推断与拒绝 | `net472-x86-view`、`sample-net10`、`reject-mixed-runtimes`、`reject-lower-tfm`、`reject-platform-conflict` |
+| WinForms 技术栈 | `winforms-sample`、`winforms-net8-view`、`winforms-net48-view`、`winforms-factory-method`、`winforms-broken-binding`、`winforms-text-fit`、`winforms-empty-source`、`winforms-small-viewport`、`winforms-layout-problems`、`winforms-scroll-no-false-positive`、`winforms-form-load`、`winforms-element`、`winforms-element-missing`、`winforms-dark-rejected`、`winforms-window-host-rejected`、`winforms-steps-rejected`、`winforms-xaml-rejected` |
 
 </details>
 
@@ -385,7 +388,7 @@ agent-render/
 ├── hooks/                        # Stop hook：结束前渲染受影响视图
 ├── mcp/                          # MCP 服务器、启动器、桥接脚本与客户端测试
 ├── scripts/                      # render / compare / 生成器 / 执行器 / 图像工具 / 项目授权（trust-project）
-├── assets/                       # 渲染宿主模板（Program、ConfiguredView、Diagnostics、Json、ViewFactory）
+├── assets/                       # 渲染宿主模板：wpf/、avalonia/、winforms/ 与共享的 shared/（Json、LayoutReport、RenderOutcome、HarnessConfig）
 ├── templates/                    # 业务项目接入模板
 ├── references/                   # 详细文档
 ├── tests/                        # 端到端测试、插件清单检查与样例程序集
@@ -409,6 +412,7 @@ agent-render/
 ## 参考
 
 - [RenderTargetBitmap（WPF）](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.imaging.rendertargetbitmap)
+- [Control.DrawToBitmap（WinForms）](https://learn.microsoft.com/en-us/dotnet/api/system.windows.forms.control.drawtobitmap)
 - [WPF Threading Model](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/advanced/threading-model)
 - [WPF Layout](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/advanced/layout)
 - [Technology Regions Overview（airspace）](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/advanced/technology-regions-overview)

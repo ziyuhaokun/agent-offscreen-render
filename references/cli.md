@@ -12,7 +12,7 @@
 | --- | --- | --- | --- |
 | `-TargetFramework` | string | 自动 | `net472` / `net48` / `net481`，或 `net5.0-windows` … `net10.0-windows`（可带平台版本，如 `net8.0-windows10.0.19041.0`）。省略时读取 `-AssemblyPath` 的 `TargetFrameworkAttribute`：取同类中最高版本，低于 4.7.2 的 .NET Framework 程序集用 `net472`；没有业务程序集时为 `net8.0-windows`。显式指定但与业务程序集不兼容（类别不同或版本更低）时报错 |
 | `-Platform` | string | 自动 | `AnyCPU` / `x86` / `x64` / `ARM64`，写入 `PlatformTarget`。省略时读取 `-AssemblyPath` 的 PE 头：存在 x86 程序集（含 C++/CLI 混合程序集与“首选 32 位”的 exe）或 x64 / ARM64 程序集就跟随它，否则 `AnyCPU`；要求冲突时报错 |
-| `-Stack` | string | 自动 | `wpf` / `avalonia`。省略时按程序集引用识别；两者混引、未知值或 Avalonia 程序集面向 .NET Framework 时报错。Avalonia 宿主使用不带 `-windows` 的 net8.0 及以上 TFM，按业务程序集的 Avalonia 主版本选基线（11 → 11.3.22，12 → 12.1.4），同一主版本内跟随更高的引用版本；没有业务程序集时默认 12.1.4 |
+| `-Stack` | string | 自动 | `wpf` / `avalonia` / `winforms`。省略时按程序集引用识别；Avalonia 与 WPF 混引、未知值或 Avalonia 程序集面向 .NET Framework 时报错。Avalonia 宿主使用不带 `-windows` 的 net8.0 及以上 TFM，按业务程序集的 Avalonia 主版本选基线（11 → 11.3.22，12 → 12.1.4），同一主版本内跟随更高的引用版本；没有业务程序集时默认 12.1.4 |
 | `-WorkDir` | string | `%TEMP%\agent-render-<GUID>` | 工程目录；**已存在则拒绝覆盖** |
 | `-AssemblyPath` | string[] | 空 | 要引用的业务程序集（`.dll`，或 .NET Framework WPF 程序的 `.exe`）；以 `HintPath` + `Private=true` 写入 csproj（路径做 XML 转义，可含空格）。.NET Framework 与 .NET 程序集不能混用 |
 | `-ViewType` | string | 空 | 要渲染的 View 类型（完整名或程序集限定名），需有无参构造；与 `-Xaml` 二选一 |
@@ -46,12 +46,12 @@ WPF 宿主源码只使用 .NET Framework 4.7.2 与 .NET 5+ 共有的 API（不�
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `-Stack` | 自动 | `wpf` / `avalonia`；省略时按程序集引用识别 |
+| `-Stack` | 自动 | `wpf` / `avalonia` / `winforms`；省略时按程序集引用识别（引用 Avalonia → avalonia，引用 PresentationFramework → wpf，只引用 System.Windows.Forms → winforms） |
 | `-Theme` | `light` | 可传多个，如 `-Theme light, dark` |
 | `-Dpi` | `96` | 可传多个，如 `-Dpi 96, 144` |
 | `-Size` | 无 | 多个视口，如 `-Size 1280x800, 800x600`；指定后忽略 `-Width` / `-Height` |
 | `-FactoryFile` | 无 | 同生成器；内容变化时重新构建缓存宿主 |
-| `-Steps` / `-ContinueOnError` / `-Animations` | 无 / 关 / `live` | 同生成器；步骤不能与多个主题 / 尺寸 / DPI 同时使用；Avalonia 宿主不支持 |
+| `-Steps` / `-ContinueOnError` / `-Animations` | 无 / 关 / `live` | 同生成器；步骤不能与多个主题 / 尺寸 / DPI 同时使用；Avalonia 与 WinForms 宿主不支持（明确报 failed:step） |
 | `-Preset` | 无 | `agent-render.json`（兼容旧 `wpf-render.json`）中的视图名，见 [integration.md](integration.md#业务项目接入agent-renderjson兼容旧-wpf-renderjson) |
 | `-Config` | 从当前目录向上查找 | `agent-render.json`（兼容旧 `wpf-render.json`）的路径或其所在目录 |
 | `-Build` | 关 | 渲染前在配置目录执行预设的 `build` 命令，失败时抛出并附构建日志末尾 |
@@ -80,7 +80,7 @@ WPF 宿主源码只使用 .NET Framework 4.7.2 与 .NET 5+ 共有的 API（不�
 | 参数 | 类型 | 默认值 | 范围 | 说明 |
 | --- | --- | --- | --- | --- |
 | `-HarnessDir` | string | **必填** | — | `new-agent-harness.ps1` 返回的 `WorkDir` |
-| `-Stack` | string | `wpf` | `wpf` / `avalonia`；直接调用时需与生成宿主时一致（`render.ps1` 会自动传入） |
+| `-Stack` | string | `wpf` | `wpf` / `avalonia` / `winforms`；直接调用时需与生成宿主时一致（`render.ps1` 会自动传入） |
 | `-Width` | int | `1280` | 1–6000 | 视口宽度（DIP） |
 | `-Height` | int | `800` | 1–6000 | 视口高度（DIP） |
 | `-Dpi` | int | `96` | 48–384 | 输出位图 DPI，决定像素尺寸 |
@@ -96,6 +96,18 @@ WPF 宿主源码只使用 .NET Framework 4.7.2 与 .NET 5+ 共有的 API（不�
 ### Avalonia 宿主
 
 `-Stack avalonia`（或按程序集引用自动识别）时，宿主使用 Avalonia 11.x / 12.x Headless + Skia，TFM 为不带 `-windows` 的 net8.0 及以上。当前支持类型视图、松散 AXAML、DataContext、主题 / 尺寸 / DPI、绑定错误、布局检查、元素截图与 `compare_snapshots`；`layout.json` 的节点、坐标与五类布局问题与 WPF 契约一致。`-WindowHost` 直接失败（`failed:render`，退出码 1），`-Steps` 返回 `failed:step`（退出码 3），不会静默忽略。资源使用 `avares://` 或文件路径，不接受 WPF 的 `pack://`。
+
+### WinForms 宿主
+
+`-Stack winforms`（或按程序集引用自动识别）时，宿主把视图 Dock 进一个从不显示的容器 `Form`，强制创建控件句柄后用 `DrawToBitmap` 出图——不 Show 窗口，不抢焦点。TFM 与 WPF 共用推断规则（`net472` / `net48` / `net481` 或 `net5.0-windows` … `net10.0-windows`）。支持 `-ViewType`（`UserControl`、`Form` 或任意 `Control`）、`-DataContextType` / `-DataContextFactory`、`-Theme light`、尺寸 / DPI、绑定与布局检查、`-Element` 与 `compare_snapshots`。
+
+明确不支持（均返回失败，不会静默忽略）：`-Theme dark`（退出码 1，WinForms 没有通用主题切换）、`-Xaml`、`-ResourceDictionary`（退出码 1，脚本层就会拒绝）、`-WindowHost`（退出码 1）、`-Steps`（退出码 3）。
+
+预览数据的注入：宿主把实例放进视图（含基类）字段中的、以及设计器 `components` 容器里的 `BindingSource`（条件：`DataSource` 为空或指向该类型），另外也设上 .NET 7+ 的 `Control.DataContext`。**只要一个 `BindingSource` 都没接上就报错**（退出码 1，提示改用 `factoryFile`），避免同一份配置在 net48 与 net8 上行为不同。
+
+限制：`DrawToBitmap` 画不出 `RichTextBox`、`WebBrowser`、ActiveX 与 DirectX / OpenGL 等原生渲染内容；重叠控件的绘制顺序可能与屏幕不同。绑定检查分两步：挂上之前逐个预检，成员写错时**摘掉该绑定并记为绑定问题**（退出码 2）；挂上之后重读每个绑定，记录格式化 / 类型转换失败。`BindingSource.DataSource` 还没赋值（运行时才注入）的绑定先摘掉并保持未解析，不报成成员写错。因此在 `Load` 里才添加、且成员写错的绑定会让控件挂上时直接抛异常，整次渲染失败（`failed:render`），`error` 里带原始异常；代码里手动赋值（不走 `DataBindings`）的字段不在检查范围内。
+
+DPI：进程不感知 DPI，布局与字体度量固定按 96 DPI（与机器缩放无关、结果可复现）；请求的 `-Dpi` 只把位图按比例放大（栅格缩放），不等同于高 DPI 显示器上的真实布局。`.NET Framework` 宿主通过 `App.config` 打开 `loadFromRemoteSources`，因此业务程序集位于网络盘或「来自网络」目录时也能加载。
 
 ### `scripts/trust-project.ps1`
 

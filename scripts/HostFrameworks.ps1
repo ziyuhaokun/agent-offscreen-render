@@ -74,7 +74,7 @@ function Get-HostFrameworks([string[]]$AssemblyPath, [string]$TargetFramework, [
         $info = ConvertTo-FrameworkInfo $target.Framework
         if (-not $info) { continue }
         if ($info.Family -eq 'core' -and $info.Version.Major -lt 5) {
-            throw "$($target.Path) 面向 $($target.Framework)，WPF 宿主仅支持 .NET 5 及以上或 .NET Framework 4.7.2 及以上。"
+            throw "$($target.Path) 面向 $($target.Framework)，WPF / WinForms 宿主仅支持 .NET 5 及以上或 .NET Framework 4.7.2 及以上。"
         }
         if ($required -and $required.Family -ne $info.Family) {
             throw '-AssemblyPath 同时包含 .NET Framework 与 .NET 程序集，不能在同一宿主中加载。'

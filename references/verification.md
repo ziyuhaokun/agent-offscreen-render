@@ -78,7 +78,8 @@ Get-Content -LiteralPath (Join-Path $outDir 'binding-errors.txt')
 | .NET Core 3.x 程序 | 只支持 .NET Framework 4.7.2+ 与 .NET 5+ 宿主；3.x 程序集需升级，或显式 `-TargetFramework net5.0-windows` 等后自行验证兼容性 |
 | 混用 .NET Framework 与 .NET 程序集 | 一个进程只能承载一种运行时，生成器会拒绝；分别生成宿主 |
 | Avalonia 宿主能力子集 | 本期只支持初始截图、主题 / 尺寸 / DPI、绑定与布局检查、元素截图与快照对比；不支持 `windowHost` 与 `steps`，资源使用 `avares://` 或文件路径 |
-| WinUI / UWP | 本工具 WPF 宿主针对 `System.Windows.Media.Imaging.RenderTargetBitmap`，Avalonia 宿主走 Skia，均与 WinUI / UWP 同名 API 无关 |
+| WinForms 宿主能力子集 | 只支持 `light` 主题、初始截图、尺寸 / DPI、绑定与布局检查、元素截图与快照对比；不支持 `xaml`、资源字典、`windowHost` 与 `steps`。`DrawToBitmap` 画不出 `RichTextBox`、`WebBrowser`、ActiveX 等原生渲染内容；重叠控件的绘制顺序可能与屏幕不同；代码里直接赋值的字段（不走 `DataBindings`）不在绑定检查范围内 |
+| WinUI / UWP | 本工具 WPF 宿主针对 `System.Windows.Media.Imaging.RenderTargetBitmap`，Avalonia 宿主走 Skia，WinForms 宿主走 `Control.DrawToBitmap`，均与 WinUI / UWP 同名 API 无关 |
 
 ## 性能验证边界
 
@@ -93,4 +94,7 @@ RenderTargetBitmap 成功不代表页面切换不卡顿。检查性能时分别�
 - [WPF Layout](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/advanced/layout)：Measure / Arrange 布局阶段。
 - [Technology Regions / airspace](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/advanced/technology-regions-overview)：WPF 与 native HWND 互操作的呈现边界。
 
-以上是 WPF 文档，不是 UWP / WinUI 的同名 RenderTargetBitmap API。接入第三方控件时以其实现和当前文档补充限制。
+- [Control.DrawToBitmap](https://learn.microsoft.com/en-us/dotnet/api/system.windows.forms.control.drawtobitmap)：把控件及其子控件画进位图（WinForms 宿主）。
+- [Control.CreateControl](https://learn.microsoft.com/en-us/dotnet/api/system.windows.forms.control.createcontrol)：创建控件及其子控件的句柄（WinForms 宿主显式创建句柄以触发 Load 与绑定）。
+
+以上是 WPF / WinForms 文档，不是 UWP / WinUI 的同名 API。接入第三方控件时以其实现和当前文档补充限制。

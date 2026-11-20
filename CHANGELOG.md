@@ -2,6 +2,25 @@
 
 版本号记录在 `VERSION`，并与 `.claude-plugin/plugin.json`、`.codex-plugin/plugin.json`、`plugin.json`、`mcp/AgentRender/AgentRender.csproj` 保持一致（`tests/validate-plugins.ps1` 检查）。渲染结果的 `manifest.json` / `summary.json` 记录生成它的 `toolVersion`。
 
+## 未发布
+
+### WinForms 技术栈（第三档）
+- 新增 `assets/winforms/` 宿主与 `-Stack winforms`，按程序集引用自动识别（只引用 `System.Windows.Forms` 判为 winforms；同时引用 `PresentationFramework` 仍按 wpf）。
+- 视图 Dock 进一个**从不显示**的容器 `Form`，用 `Control.CreateControl(true)` 强制创建句柄（`UserControl.Load` / 嵌入的 `Form.Load` 照常触发，不抢焦点），再用 `DrawToBitmap` 出图；业务 `Form` 视图以 `TopLevel=false` 嵌入，只截客户区。
+- 绑定检查：没有 WPF 的绑定跟踪日志，改为「挂上之前逐个预检 + 挂上之后重读」：成员写错时摘掉该绑定并记为绑定问题（退出码 2）；格式化 / 转换失败记在重读阶段；所有绑定都正常且预检能检出探针的错误成员，才算 `bindingTraceVerified`。
+- 布局检查五类与 WPF 同名，按控件树计算（客户区裁切、AutoScroll 视口、文本测量用 `TextRenderer`）。
+- 明确拒绝（不静默忽略）：`dark` 主题、松散 `xaml`、资源字典、`windowHost`、`steps`；DataContext 注入到视图里 `DataSource` 为空或指向该类型的 `BindingSource`，以及 .NET 7+ 的 `Control.DataContext`；一个 `BindingSource` 都没接上时直接报错（不因 TFM 不同而一个报错一个静默成功）。
+- `BindingSource.DataSource` 尚未赋值的绑定先摘下并保持未解析：这类绑定挂上时 WinForms 会直接抛 `Cannot bind to the property or column`，以前会把整次渲染带崩。
+- 限制：`DrawToBitmap` 画不出 `RichTextBox`、`WebBrowser`、ActiveX 等原生内容；`Load` 里才添加且有错的绑定会让整次渲染失败。
+
+### 修复
+- .NET Framework 宿主（WPF 与 WinForms）生成的 `App.config` 打开 `loadFromRemoteSources`：业务程序集位于网络盘或「来自网络」目录时，此前会以 `0x80131515 Operation is not supported` 直接失败。修复前本机的 5 个 `net472-*` 用例全红（`steps-net472` 未单独复现），修复后全绿。
+
+### 检查
+- WinForms：17 个新用例（样例、net8 / net48 视图、工厂数据、绑定错误且只报一条、按钮单行裁切、空 BindingSource 不误报、640×360 小视口、五类布局问题、滚动不误报、Form.Load、元素截图几何与 DPI、元素缺失、暗色拒绝、windowHost 拒绝、steps 拒绝、XAML 拒绝）全部通过。
+- 完整回归（65 个用例）：64 通过，1 失败。失败的是 `logic-tests`（`dotnet test` 的 testhost.x86 报 `Win32Exception (5) Access is denied` 打不开父进程），在未改动的 HEAD 快照里同样失败，属本机环境问题，与本次改动无关。
+- 注入验证：`UserControl.Load`、嵌入的 `Form.Load` 都会触发，隐藏容器下前台窗口不变（手工探测，net48 / net8 / net10 结果一致）；渲染结果本身由 net48 与 net8 两个用例覆盖。
+
 ## 2.1.1 – 2026-11-20
 
 ### 超时对齐

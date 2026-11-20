@@ -14,7 +14,7 @@ param(
     [string]$Element,
     [switch]$NoBuild,
     # 技术栈：已经由 render.ps1 判定；渲染失败时摘要仍要标出实际用的栈。
-    [ValidateSet('wpf','avalonia')][string]$Stack = 'wpf',
+    [ValidateSet('wpf','avalonia','winforms')][string]$Stack = 'wpf',
     [ValidateRange(5,600)][int]$TimeoutSeconds = 120
 )
 $ErrorActionPreference = 'Stop'

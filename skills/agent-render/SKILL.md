@@ -1,13 +1,13 @@
 ---
 name: agent-render
-description: 在独立临时进程中把真实 WPF UserControl、Page、Window 或松散 XAML 离屏渲染成 PNG，同时返回绑定错误、布局问题、实际尺寸与 DPI 摘要，用于界面预览、布局 / 主题 / 数据绑定检查和视觉回归。用户要渲染、截图、预览 WPF / Avalonia / XAML / AXAML 界面，或对比改动前后效果时使用（render, screenshot, preview, WPF visual regression）。不适用于 WinUI、UWP、MAUI、WinForms。
+description: 在独立临时进程中把真实 WPF UserControl、Page、Window、松散 XAML，Avalonia Control / AXAML，或 WinForms 的 UserControl / Form 离屏渲染成 PNG，同时返回绑定错误、布局问题、实际尺寸与 DPI 摘要，用于界面预览、布局 / 主题 / 数据绑定检查和视觉回归。用户要渲染、截图、预览 WPF / Avalonia / WinForms / XAML / AXAML 界面，或对比改动前后效果时使用（render, screenshot, preview, WPF visual regression, WinForms screenshot）。不适用于 WinUI、UWP、MAUI。
 ---
 
 # Agent 多技术栈离屏渲染
 
-**给 AI 一双看 WPF / Avalonia 的眼睛。**
+**给 AI 一双看 WPF / Avalonia / WinForms 的眼睛。**
 
-在独立临时进程中创建 WPF 或 Avalonia Visual，输出 PNG；使用真实控件、真实样式和确定的样例数据，不启动业务程序。渲染需要 Windows；WPF 的 `windowHost` 还需要交互式桌面会话。
+在独立临时进程中创建 WPF、Avalonia 或 WinForms 的控件，输出 PNG；使用真实控件、真实样式和确定的样例数据，不启动业务程序。渲染需要 Windows；WPF 的 `windowHost` 还需要交互式桌面会话。
 
 ## 仓库根
 
@@ -47,6 +47,8 @@ Skill 被单独复制到其他目录时必须设置 `AGENT_RENDER_ROOT`；不要
 
 Avalonia 本期只支持初始截图、主题 / 尺寸 / DPI、绑定日志和布局报告；传 `steps` 会明确失败，不会静默跳过。
 
+WinForms 同样只支持初始截图、尺寸 / DPI、绑定与布局检查、元素截图和快照对比：只支持 `light` 主题，传 `theme: dark`、`steps`、`xaml`、`resourceDictionaries` 或 `windowHost` 都会明确失败；视图用 `viewType` 指定 `UserControl` / `Form`，预览数据注入到视图里 `DataSource` 为空或指向该类型的 `BindingSource`。限制：`DrawToBitmap` 画不出 `RichTextBox`、`WebBrowser`、ActiveX 等原生内容；绑定成员写错时会被**摘掉并记为绑定问题**（退出码 2，不会弄崩这次渲染），只有 `Load` 里才添加的坏绑定无法先摘掉，会让整次渲染失败；数据源还没赋值（`BindingSource.DataSource` 为空）的绑定会被跳过并保持未解析，不报成绑定问题；请求的 DPI 只把位图按比例放大，布局仍按 96 DPI。
+
 `self_test` 用于首次安装、工具或 Windows Desktop Runtime 变化、`failed:start`，或怀疑环境异常时；不要每次改 UI 都运行。
 
 ## 最短路径
@@ -62,7 +64,7 @@ Avalonia 本期只支持初始截图、主题 / 尺寸 / DPI、绑定日志和�
 
 - **交互**：用 `steps` 验证展开、输入、点击、Tab、VisualState 和动画。步骤不能与多个主题 / 尺寸 / DPI 同时使用；用 `waitFor` 等明确完成信号，不要只靠 `waitMs`。默认主题 `IsMouseOver` / `IsPressed` 触发器离屏截不到，`state` 会明确报错。动作会运行真实业务代码，只对样例 VM / stub 服务执行。写法见 `{仓库根}\references\steps.md`。
 - **改动对比**：改前后保持机器、字体、资源、样例数据、尺寸、主题、DPI 和动画状态一致，再用 `compare_snapshots`。查看 `changedBoundsDip`、`environmentDifferences` 和差异图。
-- **一次性探查**：用 `{仓库根}\scripts\new-agent-harness.ps1 -Stack wpf|avalonia` 生成工程，再用 `invoke-agent-render.ps1 -HarnessDir` 渲染；异步页面在 `ViewFactory.WaitUntilReadyAsync` 等明确完成信号。
+- **一次性探查**：用 `{仓库根}\scripts\new-agent-harness.ps1 -Stack wpf|avalonia|winforms` 生成工程，再用 `invoke-agent-render.ps1 -HarnessDir` 渲染；异步页面在 `ViewFactory.WaitUntilReadyAsync` / `WaitUntilReady` 等明确完成信号。
 
 ## 产物生命周期
 

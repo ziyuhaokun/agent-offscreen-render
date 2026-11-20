@@ -42,10 +42,25 @@ if (-not $Quick) {
         if ($LASTEXITCODE -ne 0) { Get-Content -LiteralPath $log -Tail 30; throw "样例程序集构建失败：$($variant.Name)" }
         $samples[$variant.Name] = Join-Path $out 'SampleViews.dll'
     }
+
+    # WinForms 样例程序集：net48 与 net8.0-windows 两个变体，宿主 TFM 由业务程序集推断。
+    $winFormsProject = Join-Path $fixtures 'WinFormsViews\WinFormsViews.csproj'
+    foreach ($variant in @(
+            @{ Name = 'winforms-net48'; Args = @('-f', 'net48') },
+            @{ Name = 'winforms-net8'; Args = @('-f', 'net8.0-windows') })) {
+        $out = Join-Path $ArtifactsDir "fixtures\$($variant.Name)"
+        $log = Join-Path $ArtifactsDir "fixtures-$($variant.Name).log"
+        & dotnet build $winFormsProject -c Release --nologo --no-incremental -o $out @($variant.Args) *> $log
+        if ($LASTEXITCODE -ne 0) { Get-Content -LiteralPath $log -Tail 30; throw "WinForms 样例程序集构建失败：$($variant.Name)" }
+        $samples[$variant.Name] = Join-Path $out 'WinFormsViews.dll'
+    }
 }
 
 $layoutProblemKinds = @('text-truncated:TextBlock#TruncatedTitle', 'clipped:Button#ClippedButton', 'overlap:TextBlock#OverlapA',
     'zero-size:TextBlock#ZeroSizeText', 'out-of-viewport:TextBlock#OffscreenNote')
+# WinForms 的元素标签用控件类短名（Label#TruncatedTitle），五类问题与 WPF 同一套 kind。
+$winFormsLayoutProblemKinds = @('text-truncated:Label#TruncatedTitle', 'clipped:Button#ClippedButton', 'overlap:Label#OverlapA',
+    'zero-size:Label#ZeroSizeText', 'out-of-viewport:Label#OffscreenNote')
 
 $cases = @(
     @{ Name = 'sample-light'; Quick = $true
@@ -55,6 +70,57 @@ $cases = @(
         Expect = @{ exitCode = 0; status = 'ok'; sourceViewType = 'System.Windows.Controls.Border'; layoutIssueCount = 0 } }
     @{ Name = 'avalonia'; Kind = 'Avalonia' }
     @{ Name = 'avalonia-layout'; Kind = 'AvaloniaLayout' }
+    # WinForms：名称都以 winforms- 开头，都显式指定 Stack = winforms（通用执行器把它传给生成器与渲染器）。
+    @{ Name = 'winforms-sample'; Stack = 'winforms'
+        Expect = @{ exitCode = 0; status = 'ok'; stack = 'winforms'; sourceViewType = 'System.Windows.Forms.Panel'; layoutIssueCount = 0 } }
+    @{ Name = 'winforms-net8-view'; Stack = 'winforms'; Sample = 'winforms-net8'
+        Generate = @{ ViewType = 'WinFormsViews.OrderView'; DataContextType = 'WinFormsViews.OrderPreviewVm' }
+        Expect = @{ exitCode = 0; status = 'ok'; stack = 'winforms'; harnessTfm = 'net8.0-windows'; layoutIssueCount = 0
+            layoutText = 'Contoso 有限公司' } }
+    @{ Name = 'winforms-net48-view'; Stack = 'winforms'; Sample = 'winforms-net48'
+        Generate = @{ ViewType = 'WinFormsViews.OrderView'; DataContextType = 'WinFormsViews.OrderPreviewVm' }
+        Expect = @{ exitCode = 0; status = 'ok'; harnessTfm = 'net48'; layoutIssueCount = 0; layoutText = 'Contoso 有限公司' } }
+    @{ Name = 'winforms-factory-method'; Stack = 'winforms'; Sample = 'winforms-net8'
+        Generate = @{ ViewType = 'WinFormsViews.OrderView'; DataContextFactory = 'WinFormsViews.PreviewData.CreateRemoteOrder' }
+        # 工厂返回的 CustomerName 与默认 VM 不同：能读到它才说明工厂结果真的注入了控件。
+        Expect = @{ exitCode = 0; status = 'ok'; layoutText = 'Fabrikam 股份有限公司' } }
+    @{ Name = 'winforms-broken-binding'; Stack = 'winforms'; Sample = 'winforms-net8'
+        Generate = @{ ViewType = 'WinFormsViews.BrokenBindingView'; DataContextType = 'WinFormsViews.OrderPreviewVm' }
+        # 只报那一条：正常绑定不能被误报或误摘（还能读到 Contoso 说明 CustomerBox 仍绑着）。
+        Expect = @{ exitCode = 2; bindingIssueCount = 1; layoutText = 'Contoso 有限公司'
+            bindingIssuePattern = 'BrokenBox.Text <- DataMember=CustomerNmae（数据源 OrderPreviewVm）' } }
+    @{ Name = 'winforms-text-fit'; Stack = 'winforms'; Sample = 'winforms-net8'
+        Generate = @{ ViewType = 'WinFormsViews.TextFitView' }
+        # 按钮不换行：文字宽超出时是水平裁切（wrapped:false），不能报成「换行后高度不够」。
+        Expect = @{ exitCode = 0; layoutIssueCount = 1; layoutIssues = @('text-truncated:Button#WideButton') } }
+    @{ Name = 'winforms-empty-source'; Stack = 'winforms'; Sample = 'winforms-net8'
+        Generate = @{ ViewType = 'WinFormsViews.EmptySourceView' }
+        # BindingSource 的 DataSource 还没赋值（运行时才注入）：不能把待赋值的绑定报成成员写错。
+        Expect = @{ exitCode = 0; status = 'ok'; bindingIssueCount = 0 } }
+    @{ Name = 'winforms-small-viewport'; Stack = 'winforms'; Sample = 'winforms-net8'
+        Generate = @{ ViewType = 'WinFormsViews.OrderView'; DataContextType = 'WinFormsViews.OrderPreviewVm' }
+        Render = @{ Width = 640; Height = 360 }; Expect = @{ exitCode = 0; pixelSize = '640x360'; layoutIssueCount = 0 } }
+    @{ Name = 'winforms-layout-problems'; Stack = 'winforms'; Sample = 'winforms-net8'
+        Generate = @{ ViewType = 'WinFormsViews.LayoutProblemsView' }
+        Expect = @{ exitCode = 0; layoutIssueCount = 5; layoutIssues = $winFormsLayoutProblemKinds } }
+    @{ Name = 'winforms-scroll-no-false-positive'; Stack = 'winforms'; Sample = 'winforms-net8'
+        Generate = @{ ViewType = 'WinFormsViews.ScrollListView' }; Expect = @{ exitCode = 0; layoutIssueCount = 0 } }
+    @{ Name = 'winforms-form-load'; Stack = 'winforms'; Sample = 'winforms-net8'
+        Generate = @{ ViewType = 'WinFormsViews.OrderForm' }; Expect = @{ exitCode = 0; layoutText = 'Loaded by Form.Load' } }
+    # 144 DPI 只把位图放大到 1920x1200，manifest.warning 必须说明这一点；元素截图要与布局矩形、DPI 一致。
+    @{ Name = 'winforms-element'; Stack = 'winforms'; Sample = 'winforms-net8'
+        Generate = @{ ViewType = 'WinFormsViews.LayoutProblemsView' }; Render = @{ Element = 'ClippedButton'; Dpi = 144 }
+        Expect = @{ exitCode = 0; pixelSize = '1920x1200'; warningPresent = $true
+            elementRectDip = '166,64,100,32'; elementPixelWidth = '150' } }
+    @{ Name = 'winforms-element-missing'; Stack = 'winforms'; Sample = 'winforms-net8'
+        Generate = @{ ViewType = 'WinFormsViews.LayoutProblemsView' }; Render = @{ Element = 'NoSuchElement' }
+        Expect = @{ exitCode = 1; errorPattern = 'ClippedButton' } }
+    @{ Name = 'winforms-dark-rejected'; Stack = 'winforms'; Render = @{ Theme = 'dark' }
+        Expect = @{ exitCode = 1; errorPattern = 'light' } }
+    @{ Name = 'winforms-window-host-rejected'; Stack = 'winforms'; Render = @{ WindowHost = $true }
+        Expect = @{ exitCode = 1; errorPattern = 'windowHost' } }
+    @{ Name = 'winforms-steps-rejected'; Kind = 'WinFormsSteps' }
+    @{ Name = 'winforms-xaml-rejected'; Kind = 'WinFormsXamlRejected' }
     @{ Name = 'trust-config'; Kind = 'TrustConfig' }
     @{ Name = 'stack-rules'; Kind = 'StackRules' }
     @{ Name = 'sample-dark-dpi144'; Render = @{ Theme = 'dark'; Dpi = 144; Width = 640; Height = 360 }
@@ -812,6 +878,33 @@ function Test-AvaloniaLayout($case) {
     $failures
 }
 
+# WinForms 本期只支持 layout-only：交互步骤由宿主拒绝（failed:step / 3），松散 XAML 在脚本层就拒绝。
+function Test-WinFormsSteps($case) {
+    $failures = [Collections.Generic.List[string]]::new()
+    # 脚本抛异常或产物缺失时不能把整轮用例一起带走（$ErrorActionPreference='Stop'）。
+    try {
+        $outDir = & $oneStep -Stack winforms -NoCache -Steps '[{"name":"unsupported","focus":{"element":"x"}}]' 6> $null
+        $exitCode = $LASTEXITCODE
+        $summary = Get-Content -LiteralPath (Join-Path "$outDir" 'summary.json') -Raw | ConvertFrom-Json
+        if ($exitCode -ne 3 -or $summary.status -ne 'failed:step') {
+            $failures.Add("WinForms steps 应返回 failed:step / 3，实际 $($summary.status) / $exitCode：$($summary.error -join '; ')")
+        }
+    }
+    catch { $failures.Add("WinForms steps 用例失败：$($_.Exception.Message)") }
+    $failures
+}
+
+# -Xaml 与 winforms 同用：render.ps1 在生成宿主前就报错，不浪费一次构建。
+function Test-WinFormsXamlRejected($case) {
+    $failures = [Collections.Generic.List[string]]::new()
+    try {
+        $null = & $oneStep -Stack winforms -NoCache -Xaml (Join-Path $fixtures 'ok.xaml') 6> $null
+        $failures.Add('-Xaml 与 winforms 同用应在脚本层报错')
+    }
+    catch { if ($_.Exception.Message -notmatch 'Xaml') { $failures.Add("XAML 拒绝的报错不明确：$($_.Exception.Message)") } }
+    $failures
+}
+
 # 授权：agent-render.json 与旧的 wpf-render.json 都能授权、修改后失效、撤销，旧授权库一次性迁入。
 function Test-TrustConfig($case) {
     $failures = [Collections.Generic.List[string]]::new()
@@ -844,6 +937,7 @@ function Test-StackRules($case) {
     $failures = [Collections.Generic.List[string]]::new()
     . (Join-Path $root 'scripts\Stack.ps1')
     if ((Get-AgentRenderStack @() 'Avalonia') -ne 'avalonia') { $failures.Add('显式 -Stack 应忽略大小写并优先') }
+    if ((Get-AgentRenderStack @() 'WinForms') -ne 'winforms') { $failures.Add('显式 -Stack WinForms 应判为 winforms') }
     if ((Get-AgentRenderStack @() $null) -ne 'wpf') { $failures.Add('没有程序集时默认 wpf') }
     try { $null = Get-AgentRenderStack @() 'winui'; $failures.Add('未知技术栈应报错') } catch { }
     $info = Get-AvaloniaHostInfo @() $null $null
@@ -853,6 +947,11 @@ function Test-StackRules($case) {
     if ($samples['net8']) {
         $detected = Get-AgentRenderStack @($samples['net8']) $null
         if ($detected -ne 'wpf') { $failures.Add("WPF 样例程序集应判为 wpf，实际 $detected") }
+    }
+    # 只引用 System.Windows.Forms 的业务程序集判为 winforms；同一程序集若还引用 PresentationFramework 仍按 WPF（上面那条）。
+    if ($samples['winforms-net8']) {
+        $detected = Get-AgentRenderStack @($samples['winforms-net8']) $null
+        if ($detected -ne 'winforms') { $failures.Add("WinForms 样例程序集应判为 winforms，实际 $detected") }
     }
     # 11 / 12 双档：两代程序集各自选中对应基线；混引必须报错。
     $avalonia11 = Join-Path $HOME '.nuget\packages\avalonia\11.3.22\lib\net8.0\Avalonia.Controls.dll'
@@ -899,6 +998,8 @@ function Test-Case($case) {
     if ($case.Kind) { return & "Test-$($case.Kind)" $case }
     $failures = [Collections.Generic.List[string]]::new()
     $generate = @{ WorkDir = Join-Path $ArtifactsDir "harness\$($case.Name)" }
+    # 技术栈要同时交给生成器（选宿主源码与 UseWPF / UseWindowsForms）与渲染器（错误摘要里标出实际的栈）。
+    if ($case.Stack) { $generate.Stack = $case.Stack }
     if ($case.Generate) { $generate += $case.Generate }
     $assemblies = @($case.Samples) + @($case.Sample) | Where-Object { $_ } | ForEach-Object { $samples[$_] }
     if ($assemblies) { $generate.AssemblyPath = @($assemblies) }
@@ -911,6 +1012,7 @@ function Test-Case($case) {
     if ($case.ExpectGenerateError) { $failures.Add("生成器应报错（$($case.ExpectGenerateError)），但成功生成了工程"); return $failures }
 
     $render = @{ HarnessDir = $harness.WorkDir }
+    if ($case.Stack) { $render.Stack = $case.Stack }
     if ($case.Render) { $render += $case.Render }
     $outDir = & $renderer @render 6> $null
     $exitCode = $LASTEXITCODE
@@ -927,7 +1029,9 @@ function Test-Case($case) {
         pixelSize = $summary.pixelSize; actualSizeDip = $summary.actualSizeDip; background = $summary.background
         harnessTfm = $harness.TargetFramework; harnessPlatform = $harness.Platform
         targetFramework = $manifest.targetFramework; processArchitecture = $manifest.processArchitecture
-        layoutIssueCount = $summary.layoutIssueCount; toolVersion = $summary.toolVersion
+        layoutIssueCount = $summary.layoutIssueCount; toolVersion = $summary.toolVersion; stack = $summary.stack
+        # manifest 自己写的 stack 才算数：summary.stack 在 manifest 缺失时会回落到命令行传入的 -Stack。
+        manifestStack = $manifest.stack; bindingIssueCount = $summary.bindingIssueCount
     }
     foreach ($key in $case.Expect.Keys) {
         $expected = $case.Expect[$key]
@@ -954,6 +1058,10 @@ function Test-Case($case) {
             }
             'errorPattern' {
                 if (-not (@($summary.error) -match [regex]::Escape($expected))) { $failures.Add("error 中没有 $expected") }
+            }
+            'warningPresent' {
+                # DPI ≠ 96 时宿主把位图放大，warning 必须说明「按 96 DPI 布局后缩放」。
+                if ("$($summary.warning)" -notmatch '96 DPI') { $failures.Add("summary.warning 应说明按 96 DPI 布局后缩放，实际：$($summary.warning)") }
             }
             'layoutText' {
                 if (-not (@($layout.nodes) | Where-Object { "$($_.text)" -like "*$expected*" })) { $failures.Add("layout.json 中没有文本 $expected") }
