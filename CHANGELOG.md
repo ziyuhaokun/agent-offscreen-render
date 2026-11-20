@@ -2,7 +2,7 @@
 
 版本号记录在 `VERSION`，并与 `.claude-plugin/plugin.json`、`.codex-plugin/plugin.json`、`plugin.json`、`mcp/AgentRender/AgentRender.csproj` 保持一致（`tests/validate-plugins.ps1` 检查）。渲染结果的 `manifest.json` / `summary.json` 记录生成它的 `toolVersion`。
 
-## 未发布
+## 2.1.1 – 2026-11-20
 
 ### 超时对齐
 - `render.ps1` 新增 `-LockTimeoutSeconds`：等待被占用的缓存宿主的上限。此前固定为 3780 秒，远超 MCP 工具（20 / 30 分钟）与 Stop hook（900 秒）的超时，调用方先被终止，代理只看到笼统的「超时」。
