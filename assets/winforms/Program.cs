@@ -26,12 +26,9 @@ internal static class Program
 
     private static int Run(string[] args)
     {
-        string? Optional(string key)
-        {
-            var index = Array.IndexOf(args, key);
-            return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
-        }
-        string Value(string key) => Optional(key) ?? throw new ArgumentException($"缺少参数 {key}");
+        var commandLine = new CommandLine(args);
+        string? Optional(string key) => commandLine.Optional(key);
+        string Value(string key) => commandLine.Value(key);
 
         var outDir = Path.GetFullPath(Value("--out"));
         ConfiguredView.ConfigPath = Optional("--config");
@@ -74,8 +71,7 @@ internal static class Program
             var (layoutIssueCount, layoutReportError) = WriteLayoutReport(view, width, height, outDir);
 
             string sha256;
-            using (var sha = SHA256.Create())
-                sha256 = BitConverter.ToString(sha.ComputeHash(File.ReadAllBytes(pngPath))).Replace("-", "").ToLowerInvariant();
+            sha256 = SnapshotHash.OfFile(pngPath);
 
             var warning = dpi == 96 && dpiUnaware ? null : $"WinForms 宿主按 96 DPI 布局：请求的 DPI 只把位图按比例放大（栅格缩放），不等同于业务程序在高 DPI 显示器上的真实布局与字体。{(dpiUnaware ? "" : "另外本次进程未能设为 DPI 不感知，实际布局可能已按系统缩放放大。")}";
             var manifest = RenderOutcome.BuildManifest(
@@ -171,13 +167,7 @@ internal static class Program
 
     private static (int? Count, string? Error) WriteLayoutReport(Control root, int width, int height, string outDir)
     {
-        try
-        {
-            var (report, count) = LayoutReport.Inspect(root, width, height);
-            File.WriteAllText(Path.Combine(outDir, "layout.json"), Json.Write(report));
-            return (count, null);
-        }
-        catch (Exception ex) { return (null, ex.GetType().Name + ": " + ex.Message); }
+        return LayoutFile.Write(outDir, () => LayoutReport.Inspect(root, width, height));
     }
 
     private static void WriteResults(string outDir, List<KeyValuePair<string, object?>>? manifest, BindingLog log, int exitCode) =>

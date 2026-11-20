@@ -32,9 +32,7 @@ internal static class BindingIssues
         var summary = element is null
             ? reason
             : $"{element}{(string.IsNullOrEmpty(name) ? "" : "#" + name)}.{property ?? "?"} <- Path={path ?? "?"}{(dataItem is null ? "" : $"（数据源 {dataItem}）")}：{reason}";
-        return Json.Object(("summary", summary), ("reason", reason), ("path", path), ("dataItem", dataItem),
-            ("targetElement", element), ("targetName", string.IsNullOrEmpty(name) ? null : name), ("targetProperty", property),
-            ("message", message));
+        return BindingIssueJson.Create(summary, reason, path, dataItem, element, name, property, message);
     }
 }
 

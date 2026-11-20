@@ -19,16 +19,14 @@ internal static class BindingIssues
         var match = BindingPattern.Match(message);
         if (!match.Success)
         {
-            return Json.Object(("summary", message), ("reason", message), ("path", null), ("dataItem", null),
-                ("targetElement", null), ("targetName", null), ("targetProperty", null), ("message", message));
+            return BindingIssueJson.Create(message, message, null, null, null, null, null, message);
         }
         var property = match.Groups["property"].Value;
         var path = match.Groups["path"].Value;
         var reason = match.Groups["reason"].Value.TrimEnd(' ', ';', '.');
         var dataItem = DataItemPattern.Match(reason) is { Success: true } item ? item.Groups["v"].Value : null;
         var summary = $"{property} <- Path={path}{(dataItem is null ? "" : $"（数据源 {dataItem}）")}：{reason}";
-        return Json.Object(("summary", summary), ("reason", reason), ("path", path), ("dataItem", dataItem),
-            ("targetElement", null), ("targetName", null), ("targetProperty", property), ("message", message));
+        return BindingIssueJson.Create(summary, reason, path, dataItem, null, null, property, message);
     }
 }
 

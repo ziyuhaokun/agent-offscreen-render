@@ -392,7 +392,7 @@ agent-render/
 ├── hooks/                        # Stop hook：结束前渲染受影响视图
 ├── mcp/                          # MCP 服务器、启动器、桥接脚本与客户端测试
 ├── scripts/                      # render / compare / 生成器 / 执行器 / 图像工具 / 项目授权（trust-project）
-├── assets/                       # 渲染宿主模板：wpf/、avalonia/、winforms/ 与共享的 shared/（Json、LayoutReport、RenderOutcome、HarnessConfig）
+├── assets/                       # 渲染宿主模板：wpf/、avalonia/、winforms/ 与共享的 shared/（Json、LayoutReport、RenderOutcome、HarnessConfig、HostSupport）
 ├── templates/                    # 业务项目接入模板
 ├── references/                   # 详细文档
 ├── tests/                        # 端到端测试、插件清单检查与样例程序集

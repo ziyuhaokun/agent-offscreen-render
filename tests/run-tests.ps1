@@ -123,6 +123,7 @@ $cases = @(
     @{ Name = 'winforms-xaml-rejected'; Kind = 'WinFormsXamlRejected' }
     @{ Name = 'trust-config'; Kind = 'TrustConfig' }
     @{ Name = 'stack-rules'; Kind = 'StackRules' }
+    @{ Name = 'stack-profile'; Kind = 'StackProfile' }
     @{ Name = 'sample-dark-dpi144'; Render = @{ Theme = 'dark'; Dpi = 144; Width = 640; Height = 360 }
         Expect = @{ exitCode = 0; pixelSize = '960x540'; background = '#FF1E1E1E' } }
     @{ Name = 'sample-window-host'; Render = @{ WindowHost = $true; Width = 800; Height = 600 }
@@ -732,6 +733,51 @@ function Test-ResourceDictionary($case) {
     $failures
 }
 
+# 技术栈能力表是限制的唯一来源：渲染前的门禁、生成器的门禁、Steps 的支持判定、宿主目录都读它。
+# 顺便把三处 ValidateSet 与表对齐 —— 以前加栈要改 4 个地方，漏一个就是静默回落成 WPF 宿主。
+function Test-StackProfile($case) {
+    $failures = [Collections.Generic.List[string]]::new()
+    . (Join-Path $root 'scripts\Stack.ps1')
+
+    $expected = @{
+        wpf = @{ DisplayName = 'WPF'; HostDir = 'wpf'; Xaml = $true; Dictionary = $true; Pack = $true; WindowHost = $true; Steps = $true; Dark = $true }
+        avalonia = @{ DisplayName = 'Avalonia'; HostDir = 'avalonia'; Xaml = $true; Dictionary = $true; Pack = $false; WindowHost = $false; Steps = $false; Dark = $true }
+        winforms = @{ DisplayName = 'WinForms'; HostDir = 'winforms'; Xaml = $false; Dictionary = $false; Pack = $false; WindowHost = $false; Steps = $false; Dark = $false }
+    }
+    foreach ($name in $expected.Keys) {
+        $profile = Get-AgentRenderStackProfile $name
+        $want = $expected[$name]
+        $checks = [ordered]@{
+            名称 = @($profile.DisplayName, $want.DisplayName); 宿主目录 = @($profile.HostDir, $want.HostDir)
+            Xaml = @($profile.SupportsXaml, $want.Xaml); 资源字典 = @($profile.SupportsResourceDictionary, $want.Dictionary)
+            pack字典 = @($profile.SupportsPackDictionary, $want.Pack); windowHost = @($profile.SupportsWindowHost, $want.WindowHost)
+            交互步骤 = @($profile.SupportsSteps, $want.Steps); 暗色主题 = @($profile.SupportsDarkTheme, $want.Dark)
+        }
+        foreach ($key in $checks.Keys) {
+            $actual, $wanted = $checks[$key]
+            if ("$actual" -ne "$wanted") { $failures.Add("$name 的 $key 期望 $wanted，实际 $actual") }
+        }
+        # 大小写不敏感，与 ValidateSet 的行为一致。
+        if ((Get-AgentRenderStackProfile ([string]$name).ToUpperInvariant()).HostDir -ne $want.HostDir) { $failures.Add("$name 的能力表查询应忽略大小写") }
+    }
+    try { $null = Get-AgentRenderStackProfile 'winui'; $failures.Add('未知技术栈应报错') }
+    catch { if ($_.Exception.Message -notmatch '未知技术栈') { $failures.Add("未知技术栈的报错不明确：$($_.Exception.Message)") } }
+
+    # ValidateSet 必须与能力表同一份清单。
+    foreach ($file in 'render.ps1', 'new-agent-harness.ps1', 'invoke-agent-render.ps1') {
+        $text = [IO.File]::ReadAllText((Join-Path $root "scripts\$file"))
+        $match = [regex]::Match($text, "ValidateSet\(([^)]*)\)\]\s*\[string\]\`$Stack")
+        if (-not $match.Success) { $failures.Add("$file 没有 -Stack 的 ValidateSet（清单应读能力表）"); continue }
+        $listed = @([regex]::Matches($match.Groups[1].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+        $missing = @($expected.Keys | Where-Object { $_ -notin $listed })
+        $extra = @($listed | Where-Object { $_ -notin $expected.Keys })
+        if ($missing.Count -or $extra.Count) { $failures.Add("$file 的 ValidateSet 与能力表不一致：缺 [$($missing -join ',')]，多 [$($extra -join ',')]") }
+    }
+    # 生成器不能再用 default 分支静默回落成 WPF 宿主。
+    $generatorText = [IO.File]::ReadAllText((Join-Path $root 'scripts\new-agent-harness.ps1'))
+    if ($generatorText -match "hostDir = switch[\s\S]{0,200}default") { $failures.Add('生成器的宿主目录又改回了带 default 回落的 switch') }
+    $failures
+}
 # Watches.ps1（watch 匹配的单一 module）：glob 语义、defaults 继承、命中文件返回，表驱动直测。
 function Test-WatchMatcher($case) {
     $failures = [Collections.Generic.List[string]]::new()

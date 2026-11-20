@@ -29,12 +29,9 @@ internal static class Program
 
     private static int Run(string[] args)
     {
-        string? Optional(string key)
-        {
-            var index = Array.IndexOf(args, key);
-            return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
-        }
-        string Value(string key) => Optional(key) ?? throw new ArgumentException($"缺少参数 {key}");
+        var commandLine = new CommandLine(args);
+        string? Optional(string key) => commandLine.Optional(key);
+        string Value(string key) => commandLine.Value(key);
 
         var outDir = Path.GetFullPath(Value("--out"));
         ConfiguredView.ConfigPath = Optional("--config");
@@ -93,8 +90,7 @@ internal static class Program
             var (layoutIssueCount, layoutReportError) = WriteLayoutReport(root, width, height, outDir);
 
             string sha256;
-            using (var sha = SHA256.Create())
-                sha256 = Convert.ToHexString(sha.ComputeHash(File.ReadAllBytes(pngPath))).ToLowerInvariant();
+            sha256 = SnapshotHash.OfFile(pngPath);
 
             var warning = dpi == 96 ? null : "Avalonia 无头窗口的 RenderScaling 固定为 1：布局与文本度量仍按 96 DPI 的 DIP 计算，请求的 DPI 只放大输出位图（矢量缩放），不等同于真实高 DPI 显示器上的布局。";
             var manifest = BuildManifest(Optional, view, theme, width, height, dpi, background, backgroundSource,
@@ -196,13 +192,7 @@ internal static class Program
 
     private static (int? Count, string? Error) WriteLayoutReport(Control root, int width, int height, string outDir)
     {
-        try
-        {
-            var (report, count) = LayoutReport.Inspect(root, width, height);
-            File.WriteAllText(Path.Combine(outDir, "layout.json"), Json.Write(report));
-            return (count, null);
-        }
-        catch (Exception ex) { return (null, ex.GetType().Name + ": " + ex.Message); }
+        return LayoutFile.Write(outDir, () => LayoutReport.Inspect(root, width, height));
     }
 
     // 公共字段由 RenderOutcome 统一拼装；这里只交 Avalonia 自己知道的事实：stack、实际尺寸与 DPI 警告。

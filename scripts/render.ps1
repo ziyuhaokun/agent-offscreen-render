@@ -133,12 +133,13 @@ if ($FactoryFile) { $FactoryFile = (Resolve-Path -LiteralPath $FactoryFile).Prov
 $assemblies = @($AssemblyPath | ForEach-Object { (Resolve-Path -LiteralPath $_).ProviderPath })
 . (Join-Path $PSScriptRoot 'Stack.ps1')
 $Stack = Get-AgentRenderStack $assemblies $Stack
-if ($Stack -eq 'avalonia' -and @($ResourceDictionary | Where-Object { $_ -match '^pack:' }).Count -gt 0) {
-    throw 'Avalonia 不支持 WPF pack:// 资源字典，请改用 avares:// 或文件路径。'
+# 能力门禁统一读能力表（Stack.ps1）：宿主还不支持的东西在生成工程前就拒绝，不浪费一次构建。
+$profile = Get-AgentRenderStackProfile $Stack
+if (-not $profile.SupportsPackDictionary -and @($ResourceDictionary | Where-Object { $_ -match '^pack:' }).Count -gt 0) {
+    throw "$($profile.DisplayName) 不支持 WPF pack:// 资源字典，请改用 avares:// 或文件路径。"
 }
-# WinForms 宿主只支持 layout-only：松散 XAML 与资源字典根本不存在对应概念，在生成工程前就拒绝。
-if ($Stack -eq 'winforms' -and $Xaml) { throw 'WinForms 宿主不支持松散 XAML：请用 -ViewType 指定视图类型。' }
-if ($Stack -eq 'winforms' -and @($ResourceDictionary).Count -gt 0) { throw 'WinForms 宿主不支持资源字典，请去掉 -ResourceDictionary。' }
+if (-not $profile.SupportsXaml -and $Xaml) { throw "$($profile.DisplayName) 宿主不支持松散 XAML：请用 -ViewType 指定视图类型。" }
+if (-not $profile.SupportsResourceDictionary -and @($ResourceDictionary).Count -gt 0) { throw "$($profile.DisplayName) 宿主不支持资源字典，请去掉 -ResourceDictionary。" }
 # 资源字典：pack URI 与绝对路径保持原样；存在的相对路径按当前位置解析（{theme} 按 light 检查）。
 $ResourceDictionary = @($ResourceDictionary | ForEach-Object {
         if ([IO.Path]::IsPathRooted($_) -or $_ -like '*;component/*' -or $_ -match '^(pack|avares|file|https?)://' -or

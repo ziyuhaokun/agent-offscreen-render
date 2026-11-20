@@ -29,8 +29,8 @@ internal sealed class BindingIssue
     // 与 WPF / Avalonia 的单行结论同一形状：目标.属性 <- 路径（数据源）：原因。
     public string Summary => $"{Target}.{TargetProperty} <- DataMember={Member}{(DataItem is null ? "" : $"（数据源 {DataItem}）")}：{Reason}";
 
-    public List<KeyValuePair<string, object?>> ToJson() => Json.Object(("summary", Summary), ("reason", Reason), ("path", Member),
-        ("dataItem", DataItem), ("targetElement", TargetType), ("targetName", TargetName), ("targetProperty", TargetProperty), ("message", Summary));
+    public List<KeyValuePair<string, object?>> ToJson() =>
+        BindingIssueJson.Create(Summary, Reason, Member, DataItem, TargetType, TargetName, TargetProperty, Summary);
 }
 
 // WinForms 没有 WPF 的绑定跟踪日志。绑定成员写错时，WinForms 在控件挂上 BindingContext 那一刻直接抛

@@ -32,9 +32,11 @@ param(
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows -and $Stack -in 'wpf', 'winforms') { throw 'WPF / WinForms 渲染需要 Windows。' }
 if ($Stack -eq 'avalonia' -and $TargetFramework -and $TargetFramework -like 'net*-windows*') { throw 'Avalonia 宿主使用不带 -windows 的 TFM，例如 net8.0。' }
-# WinForms 宿主只支持 layout-only：松散 XAML 与资源字典根本不存在对应概念，在生成工程前就拒绝。
-if ($Stack -eq 'winforms' -and $Xaml) { throw 'WinForms 宿主不支持松散 XAML：请用 -ViewType 指定视图类型。' }
-if ($Stack -eq 'winforms' -and @($ResourceDictionary).Count -gt 0) { throw 'WinForms 宿主不支持资源字典，请去掉 -ResourceDictionary。' }
+# 能力门禁与渲染器同源（Stack.ps1 的能力表）：生成工程前就拒绝，避免生成一个注定失败的宿主。
+if (-not (Get-Command Get-AgentRenderStackProfile -ErrorAction SilentlyContinue)) { . (Join-Path $PSScriptRoot 'Stack.ps1') }
+$profile = Get-AgentRenderStackProfile $Stack
+if (-not $profile.SupportsXaml -and $Xaml) { throw "$($profile.DisplayName) 宿主不支持松散 XAML：请用 -ViewType 指定视图类型。" }
+if (-not $profile.SupportsResourceDictionary -and @($ResourceDictionary).Count -gt 0) { throw "$($profile.DisplayName) 宿主不支持资源字典，请去掉 -ResourceDictionary。" }
 if ($ViewType -and $Xaml) { throw '-ViewType 与 -Xaml 只能二选一。' }
 if ($DataContextType -and $DataContextFactory) { throw '-DataContextType 与 -DataContextFactory 只能二选一。' }
 if (($DataContextType -or $DataContextFactory) -and -not ($ViewType -or $Xaml)) { throw '-DataContextType / -DataContextFactory 需要配合 -ViewType 或 -Xaml。' }
@@ -151,7 +153,7 @@ Write-HarnessConfig -Path $configPath -Stack $Stack -ViewType $ViewType -Xaml $X
     -Steps $normalizedSteps -ContinueOnError $ContinueOnError -Animations $Animations
 # 按字面路径复制：安装目录含 [ ] 时 -Path 会被当作通配符。
 # 技术栈宿主与共享 JSON 写入器分目录，避免把 WPF 引用带进 Avalonia / WinForms 工程。
-$hostDir = switch ($Stack) { 'avalonia' { '..\assets\avalonia' } 'winforms' { '..\assets\winforms' } default { '..\assets\wpf' } }
+$hostDir = '..\assets\' + $profile.HostDir
 foreach ($dir in @($hostDir, '..\assets\shared')) {
     Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot $dir) -Filter '*.cs' | Copy-Item -Destination $WorkDir
 }

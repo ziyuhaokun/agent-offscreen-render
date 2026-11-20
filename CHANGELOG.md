@@ -25,6 +25,13 @@
 - MCP E2E 补 `render_matrix` 对 `stack: winforms` 默认只渲染 light 的断言。
 - Stop hook 按剩余预算给每次渲染传 `-TimeoutSeconds`（上限 600）：以前只约束「等缓存宿主的锁」，锁拿到后不再看时间，多组合预设能把 hook 顶穿 900 秒被客户端杀掉，状态写不下来、下一轮从头重跑。
 
+### 深度审计第三批（结构加固）
+- 新增技术栈能力表 `Get-AgentRenderStackProfile`（`scripts/Stack.ps1`）：松散 XAML / 资源字典 / pack:// 字典 / windowHost / 交互步骤 / 暗色主题与宿主目录都从这张表读。此前同一组限制散在 `render.ps1`、`new-agent-harness.ps1`、`Steps.ps1` 三处 `if` 与一个宿主目录 `switch` 里，加新栈时漏改一处不会报错。
+- 生成器的宿主目录不再有 `default { '..\assets\wpf' }` 回落：未知技术栈直接报错，不会静默生成 WPF 宿主。
+- 三个宿主的外围骨架收进 `assets/shared/HostSupport.cs`：命令行取值（`CommandLine`）、`layout.json` 落盘（`LayoutFile.Write`）、截图哈希（`SnapshotHash.OfFile`）。三份几乎逐字的拷贝去掉，Avalonia 的哈希改用与另两档相同的 `BitConverter` 写法（`Convert.ToHexString` 在 net472 上不存在，同一份共享代码必须避开）。
+- `binding-errors.json` 的单条形状（8 个字段与顺序）收进 `BindingIssueJson.Create`：此前三档 Diagnostics 各拼一次，改一处字段就漂移，而 summary / MCP / hook 都只认这条形状。
+- 新增 `stack-profile` 用例：三档能力逐项对表、未知栈报错、三处 `-Stack` 的 `ValidateSet` 与能力表清单一致、生成器不得再出现带 `default` 的宿主目录 `switch`。
+
 ## 2.2.0 – 2026-11-20
 
 ### WinForms 技术栈（第三档）

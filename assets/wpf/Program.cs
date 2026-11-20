@@ -16,12 +16,9 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        string? Optional(string key)
-        {
-            var index = Array.IndexOf(args, key);
-            return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
-        }
-        string Value(string key) => Optional(key) ?? throw new ArgumentException($"缺少参数 {key}");
+        var commandLine = new CommandLine(args);
+        string? Optional(string key) => commandLine.Optional(key);
+        string Value(string key) => commandLine.Value(key);
         var outDir = Path.GetFullPath(Value("--out"));
         ConfiguredView.ConfigPath = Optional("--config");
         Directory.CreateDirectory(outDir);
@@ -85,8 +82,7 @@ internal static class Program
                 }
 
                 string sha256;
-                using (var sha = SHA256.Create())
-                    sha256 = BitConverter.ToString(sha.ComputeHash(File.ReadAllBytes(pngPath))).Replace("-", "").ToLowerInvariant();
+                sha256 = SnapshotHash.OfFile(pngPath);
                 // 绑定问题条数与退出码在 finally 中补齐后一次性写出。
                 manifest = BuildManifest(Optional, view, hosted, theme, width, height, dpi, root, background, backgroundSource,
                     listener.SelfCheckHit, layoutIssueCount, layoutReportError, elementRect, elementError, stepReports, stepsFailed, sha256);
@@ -194,16 +190,7 @@ internal static class Program
     private static (int? IssueCount, string? Error) WriteLayoutReport(FrameworkElement root, GeneralTransform rootToImage,
         int width, int height, int dpi, string outDir)
     {
-        try
-        {
-            var (layout, issueCount) = LayoutReport.Inspect(root, rootToImage, width, height, dpi / 96.0);
-            File.WriteAllText(Path.Combine(outDir, "layout.json"), Json.Write(layout));
-            return (issueCount, null);
-        }
-        catch (Exception ex)
-        {
-            return (null, ex.GetType().Name + ": " + ex.Message);
-        }
+        return LayoutFile.Write(outDir, () => LayoutReport.Inspect(root, rootToImage, width, height, dpi / 96.0));
     }
 
     // 公共字段由 RenderOutcome 统一拼装；这里只交 WPF 自己知道的事实：步骤结果与 RightToLeft 警告。

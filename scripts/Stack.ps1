@@ -6,6 +6,39 @@
 # 同一主版本内跟随更高的引用版本。
 . (Join-Path $PSScriptRoot 'HostFrameworks.ps1')
 
+# 技术栈清单与能力表：ValidateSet、渲染前的参数门禁、宿主目录都以此为唯一来源。
+# 以前同一组限制分散在 render.ps1 / new-agent-harness.ps1 / Steps.ps1 三处 if 与一个宿主目录 switch，
+# 加新栈或改限制时极易只改一处（new-agent-harness 的 default 分支还会静默回落成 WPF 宿主）。
+$script:AgentRenderStacks = @('wpf', 'avalonia', 'winforms')
+
+function Get-AgentRenderStackProfile([string]$Stack) {
+    switch ("$Stack".ToLowerInvariant()) {
+        'wpf' {
+            return [pscustomobject]@{
+                Stack = 'wpf'; DisplayName = 'WPF'; HostDir = 'wpf'
+                SupportsXaml = $true; SupportsResourceDictionary = $true; SupportsPackDictionary = $true
+                SupportsWindowHost = $true; SupportsSteps = $true; SupportsDarkTheme = $true
+            }
+        }
+        'avalonia' {
+            return [pscustomobject]@{
+                Stack = 'avalonia'; DisplayName = 'Avalonia'; HostDir = 'avalonia'
+                # 资源字典走 avares:// 或文件路径；WPF 的 pack:// 由脚本层直接拒绝。
+                SupportsXaml = $true; SupportsResourceDictionary = $true; SupportsPackDictionary = $false
+                SupportsWindowHost = $false; SupportsSteps = $false; SupportsDarkTheme = $true
+            }
+        }
+        'winforms' {
+            return [pscustomobject]@{
+                Stack = 'winforms'; DisplayName = 'WinForms'; HostDir = 'winforms'
+                # WinForms 没有松散 XAML / 资源字典 / 通用主题切换，windowHost 与交互步骤也不支持。
+                SupportsXaml = $false; SupportsResourceDictionary = $false; SupportsPackDictionary = $false
+                SupportsWindowHost = $false; SupportsSteps = $false; SupportsDarkTheme = $false
+            }
+        }
+        default { throw "未知技术栈：$Stack（可选 $($script:AgentRenderStacks -join ' / ')）" }
+    }
+}
 # 每个主版本钉一个已验证的包版本；未列出的主版本明确拒绝。
 # 12 已用 12.0.1 / 12.1.0 / 12.1.4 的真实业务视图验证，宿主源码同时兼容 11 / 12。
 $script:AvaloniaHostBaselines = [ordered]@{
