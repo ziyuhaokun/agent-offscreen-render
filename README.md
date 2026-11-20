@@ -8,7 +8,7 @@
 *Give your agent eyes on WPF, Avalonia and WinForms.*
 
 [![CI](https://github.com/ayueryi/wpf-offscreen-render/actions/workflows/ci.yml/badge.svg)](https://github.com/ayueryi/wpf-offscreen-render/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-2.1.1-blue)
+![version](https://img.shields.io/badge/version-2.2.0-blue)
 ![WPF](https://img.shields.io/badge/WPF-.NET%20Framework%204.7.2%20%E2%80%93%20.NET%2010-512BD4)
 ![Avalonia](https://img.shields.io/badge/Avalonia-11.x%20%2F%2012.x%20%2F%20.NET%208%2B-8B44AC)
 ![WinForms](https://img.shields.io/badge/WinForms-.NET%20Framework%204.7.2%20%E2%80%93%20.NET%2010-0E7A9F)

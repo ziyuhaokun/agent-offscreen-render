@@ -2,7 +2,7 @@
 
 版本号记录在 `VERSION`，并与 `.claude-plugin/plugin.json`、`.codex-plugin/plugin.json`、`plugin.json`、`mcp/AgentRender/AgentRender.csproj` 保持一致（`tests/validate-plugins.ps1` 检查）。渲染结果的 `manifest.json` / `summary.json` 记录生成它的 `toolVersion`。
 
-## 未发布
+## 2.2.0 – 2026-11-20
 
 ### WinForms 技术栈（第三档）
 - 新增 `assets/winforms/` 宿主与 `-Stack winforms`，按程序集引用自动识别（只引用 `System.Windows.Forms` 判为 winforms；同时引用 `PresentationFramework` 仍按 wpf）。
