@@ -758,6 +758,14 @@ function Test-Avalonia($case) {
     if (-not (@($summary.bindingIssues) -match 'MissingProperty')) { $failures.Add('Avalonia 绑定摘要中没有 MissingProperty') }
     if (-not $summary.snapshot -or -not (Test-Path -LiteralPath $summary.snapshot)) { $failures.Add('Avalonia 缺少 snapshot.png') }
 
+    # -Element 找不到时与 WPF 一致：整次渲染失败（退出码 1），错误中列出可用名称。复用刚生成的宿主，不再构建。
+    $missingOut = & $renderer -HarnessDir (Split-Path -Parent "$outDir") -NoBuild -Stack avalonia -Width 400 -Height 200 -Element NoSuchElement 6> $null
+    $missingExit = $LASTEXITCODE
+    $missing = Get-Content -LiteralPath (Join-Path "$missingOut" 'summary.json') -Raw | ConvertFrom-Json
+    if ($missingExit -ne 1 -or "$($missing.status)" -notlike 'failed*' -or -not (@($missing.error) -match 'BrokenText')) {
+        $failures.Add("Avalonia -Element 找不到时应失败并列出可用名称，实际 $($missing.status) / $missingExit：$($missing.error)")
+    }
+
     $stepsOut = & $oneStep -Stack avalonia -NoCache -Steps '[{"name":"unsupported","focus":{"element":"x"}}]' 6> $null
     $stepsExit = $LASTEXITCODE
     $stepsSummary = Get-Content -LiteralPath (Join-Path "$stepsOut" 'summary.json') -Raw | ConvertFrom-Json

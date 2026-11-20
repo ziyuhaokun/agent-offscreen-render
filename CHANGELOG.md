@@ -10,8 +10,11 @@
 - MCP：脚本进程退出后，stdout / stderr 最多再等 10 秒且响应客户端取消；此前残留的 MSBuild 节点持有输出管道时，工具调用可能永久挂住。
 - Stop hook：全部视图共用 780 秒预算，等锁时间压在剩余预算内；预算不足的视图报「未渲染」，不再被客户端终止后每轮重跑。
 
+### 修复
+- Avalonia：`-Element` 找不到元素时整次渲染失败（退出码 1，列出可用名称），与 WPF 及文档一致；此前只记 `elementError`，状态仍为 `ok`。
+
 ### 检查
-- 新增用例 `render-lock-timeout`。
+- 新增用例 `render-lock-timeout`；`avalonia` 用例增加元素缺失断言。
 
 ## 2.1.0 – 2026-11-02
 

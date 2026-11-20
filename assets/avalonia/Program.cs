@@ -175,10 +175,11 @@ internal static class Program
     {
         if (name is null) return (null, null);
         var target = Descendants(root).FirstOrDefault(control => control.Name == name);
+        // 与 WPF 宿主一致：找不到元素是调用错误，整次渲染失败（退出码 1），不能只记一条 elementError 而仍报 ok。
         if (target is null)
         {
             var names = string.Join(", ", Descendants(root).Select(control => control.Name).Where(item => item?.Length > 0).Distinct().Take(40));
-            return (null, $"找不到 x:Name 为 {name} 的可见元素。可用名称：{names}");
+            throw new InvalidOperationException($"找不到 x:Name 为 {name} 的可见元素。可用名称：{names}");
         }
         var size = target.Bounds;
         var origin = target.TranslatePoint(new Point(0, 0), root) ?? new Point(0, 0);
